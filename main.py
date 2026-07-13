@@ -89,8 +89,13 @@ def startup():
     db.commit()
 
     # Удалить старых тестовых пользователей без логина
-    db.query(User).filter(User.login == None).delete()
-    db.commit()
+    old_users = db.query(User).filter(User.login == None).all()
+    for ou in old_users:
+        try:
+            db.delete(ou)
+            db.commit()
+        except Exception:
+            db.rollback()
     db.close()
 
 
