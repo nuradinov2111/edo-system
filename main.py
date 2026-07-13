@@ -31,10 +31,11 @@ def run_migrations(eng):
     from sqlalchemy import text, inspect
     insp = inspect(eng)
     existing_tables = insp.get_table_names()
+    is_pg = "postgresql" in str(eng.url)
+    json_type = "JSONB" if is_pg else "TEXT"
     with eng.connect() as conn:
-        # Add missing columns to existing tables
         migrations = [
-            ("documents", "extra_fields", "TEXT DEFAULT '{}'"),
+            ("documents", "extra_fields", f"{json_type} DEFAULT '{{}}'"),
             ("documents", "deleted", "BOOLEAN DEFAULT FALSE"),
             ("users", "deputy_id", "INTEGER"),
             ("attachments", "filepath", "VARCHAR(1000) DEFAULT ''"),
@@ -45,6 +46,14 @@ def run_migrations(eng):
                 cols = [c["name"] for c in insp.get_columns(table)]
                 if col not in cols:
                     conn.execute(text(f'ALTER TABLE {table} ADD COLUMN {col} {col_type}'))
+                elif col == "extra_fields" and is_pg:
+                    # Fix: convert TEXT to JSONB if it was added as TEXT previously
+                    try:
+                        conn.execute(text(
+                            "ALTER TABLE documents ALTER COLUMN extra_fields TYPE JSONB USING extra_fields::jsonb"
+                        ))
+                    except Exception:
+                        pass
         conn.commit()
 
 
