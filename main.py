@@ -75,15 +75,18 @@ def run_migrations(eng):
                 cols = [c["name"] for c in insp.get_columns(table)]
                 if col not in cols:
                     conn.execute(text(f'ALTER TABLE {table} ADD COLUMN {col} {col_type}'))
-                elif col == "extra_fields" and is_pg:
-                    # Force convert to JSONB if not already
-                    try:
-                        conn.execute(text(
-                            "ALTER TABLE documents ALTER COLUMN extra_fields TYPE JSONB USING extra_fields::jsonb"
-                        ))
-                    except Exception:
-                        pass  # already JSONB
         conn.commit()
+
+    # Separate connection for type conversion (needs own transaction)
+    if is_pg and "documents" in existing_tables:
+        with eng.connect() as conn:
+            try:
+                conn.execute(text(
+                    "ALTER TABLE documents ALTER COLUMN extra_fields TYPE JSONB USING extra_fields::jsonb"
+                ))
+                conn.commit()
+            except Exception:
+                conn.rollback()
 
 
 @app.on_event("startup")
