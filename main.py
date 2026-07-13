@@ -69,13 +69,21 @@ def startup():
          "role": "user", "department": "Отдел разработки", "position": "Специалист", "color": "#7c3aed"},
     ]
     for u in demo_users:
-        if not db.query(User).filter(User.email == u["email"]).first():
+        existing = db.query(User).filter(User.email == u["email"]).first()
+        if not existing:
             db.add(User(
                 name=u["name"], email=u["email"],
                 password_hash=hash_password(u["password"]),
                 role=u["role"], department=u["department"],
                 position=u["position"], color=u["color"],
             ))
+        else:
+            existing.name = u["name"]
+            existing.role = u["role"]
+            existing.department = u["department"]
+            existing.position = u["position"]
+            existing.color = u["color"]
+            existing.password_hash = hash_password(u["password"])
     db.commit()
     db.close()
 
