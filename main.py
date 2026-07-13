@@ -26,34 +26,6 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 app = FastAPI(title="ЭДО API")
 
 
-@app.get("/api/debug/db")
-def debug_db():
-    """Temporary debug endpoint to check DB state."""
-    from sqlalchemy import text, inspect
-    insp = inspect(engine)
-    result = {}
-    for table in ["documents", "users", "attachments", "tasks"]:
-        if table in insp.get_table_names():
-            cols = [{"name": c["name"], "type": str(c["type"])} for c in insp.get_columns(table)]
-            result[table] = cols
-        else:
-            result[table] = "TABLE NOT FOUND"
-    # Try a simple query
-    try:
-        with engine.connect() as conn:
-            r = conn.execute(text("SELECT count(*) FROM documents"))
-            result["doc_count"] = r.scalar()
-    except Exception as e:
-        result["doc_count_error"] = str(e)
-    try:
-        with engine.connect() as conn:
-            r = conn.execute(text("SELECT extra_fields, deleted FROM documents LIMIT 1"))
-            row = r.fetchone()
-            result["sample_row"] = str(row) if row else "no rows"
-    except Exception as e:
-        result["sample_error"] = str(e)
-    return result
-
 # --- Startup ---
 def run_migrations(eng):
     """Add missing columns/tables to existing DB without dropping data."""
