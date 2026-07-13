@@ -17,7 +17,7 @@ class UserLogin(BaseModel):
 
 class UserOut(BaseModel):
     id: int
-    login: str = ""
+    login: Optional[str] = ""
     name: str
     email: str
     role: str
