@@ -211,20 +211,20 @@ tr:hover td{background:var(--g50)}
   <aside class="sidebar" id="sidebar">
     <div class="sidebar-logo">ЭДО</div>
     <nav class="sidebar-nav">
-      <div class="nav-section">Основное</div>
-      <button class="nav-item active" data-page="dashboard" onclick="showPage('dashboard')"><span>&#128202;</span> Дашборд</button>
+      <div class="nav-section admin-only hidden">Основное</div>
+      <button class="nav-item admin-only hidden" data-page="dashboard" onclick="showPage('dashboard')"><span>&#128202;</span> Дашборд</button>
       <button class="nav-item" data-page="documents" onclick="showPage('documents')"><span>&#128196;</span> Документы</button>
       <button class="nav-item" data-page="create" onclick="showPage('create')"><span>&#10010;</span> Новый документ</button>
       <button class="nav-item" data-page="approvals" onclick="showPage('approvals')"><span>&#9989;</span> Согласование <span class="badge-count hidden" id="approvalBadge">0</span></button>
       <button class="nav-item" data-page="templates" onclick="showPage('templates')"><span>&#128203;</span> Шаблоны</button>
       <button class="nav-item" data-page="tasks" onclick="showPage('tasks')"><span>&#128221;</span> Поручения <span class="badge-count hidden" id="taskBadge">0</span></button>
-      <div class="nav-section">Инструменты</div>
-      <button class="nav-item" data-page="kanban" onclick="showPage('kanban')"><span>&#128200;</span> Канбан</button>
-      <button class="nav-item" data-page="calendar" onclick="showPage('calendar')"><span>&#128197;</span> Календарь</button>
-      <button class="nav-item" data-page="analytics" onclick="showPage('analytics')"><span>&#128208;</span> Аналитика</button>
-      <button class="nav-item" data-page="archive" onclick="showPage('archive')"><span>&#128451;</span> Архив</button>
-      <button class="nav-item" data-page="trash" onclick="showPage('trash')"><span>&#128465;</span> Корзина</button>
       <button class="nav-item" data-page="notifications" onclick="showPage('notifications')"><span>&#128276;</span> Уведомления <span class="badge-count hidden" id="notifBadge">0</span></button>
+      <div class="nav-section admin-only hidden">Инструменты</div>
+      <button class="nav-item admin-only hidden" data-page="kanban" onclick="showPage('kanban')"><span>&#128200;</span> Канбан</button>
+      <button class="nav-item admin-only hidden" data-page="calendar" onclick="showPage('calendar')"><span>&#128197;</span> Календарь</button>
+      <button class="nav-item admin-only hidden" data-page="analytics" onclick="showPage('analytics')"><span>&#128208;</span> Аналитика</button>
+      <button class="nav-item admin-only hidden" data-page="archive" onclick="showPage('archive')"><span>&#128451;</span> Архив</button>
+      <button class="nav-item admin-only hidden" data-page="trash" onclick="showPage('trash')"><span>&#128465;</span> Корзина</button>
       <div class="nav-section admin-only hidden">Администрирование</div>
       <button class="nav-item admin-only hidden" data-page="users" onclick="showPage('users')"><span>&#128101;</span> Сотрудники</button>
       <button class="nav-item admin-only hidden" data-page="settings" onclick="showPage('settings')"><span>&#9881;</span> Настройки</button>
@@ -313,7 +313,7 @@ async function doRegister(e){e.preventDefault();var errEl=document.getElementByI
 
 function doLogout(){localStorage.removeItem('edo-token');currentUser=null;documents=[];allUsers=[];allTags=[];notifications=[];allRoutes=[];document.getElementById('authPage').classList.remove('hidden');document.getElementById('appWrap').classList.add('hidden')}
 
-async function enterApp(){document.getElementById('authPage').classList.add('hidden');document.getElementById('appWrap').classList.remove('hidden');updateUserUI();await Promise.all([loadDocs(),loadUsers(),loadTags(),loadNotifs(),loadRoutes(),loadTasks()]);showPage('dashboard')}
+async function enterApp(){document.getElementById('authPage').classList.add('hidden');document.getElementById('appWrap').classList.remove('hidden');updateUserUI();await Promise.all([loadDocs(),loadUsers(),loadTags(),loadNotifs(),loadRoutes(),loadTasks()]);showPage(currentUser&&currentUser.role==='admin'?'dashboard':'documents')}
 
 function updateUserUI(){if(!currentUser)return;document.getElementById('userName').textContent=currentUser.name;document.getElementById('userRole').textContent=currentUser.role==='admin'?'Администратор':'Сотрудник';var av=document.getElementById('userAvatar');av.textContent=currentUser.name.charAt(0).toUpperCase();av.style.background=currentUser.color||'#2563eb';document.querySelectorAll('.admin-only').forEach(function(el){el.classList.toggle('hidden',currentUser.role!=='admin')})}
 
@@ -326,7 +326,7 @@ async function loadTasks(){try{allTasks=await api('/api/tasks');var myPending=al
 async function loadTrash(){try{trashDocs=await api('/api/documents/trash')}catch(e){trashDocs=[]}}
 function updateApprovalBadge(){var count=documents.filter(function(d){return canUserApprove(d)}).length;var badge=document.getElementById('approvalBadge');if(count>0){badge.textContent=count;badge.classList.remove('hidden')}else{badge.classList.add('hidden')}}
 
-function showPage(name,param){currentPage=name;currentPageParam=param;selectedIds.clear();sortCol='';sortDir=1;document.querySelectorAll('.nav-item').forEach(function(n){n.classList.toggle('active',n.dataset.page===name)});if(window.innerWidth<768)document.getElementById('sidebar').classList.remove('open');var pc=document.getElementById('pageContent');switch(name){case'dashboard':renderDashboard(pc);break;case'documents':renderDocuments(pc);break;case'create':renderCreateEdit(pc,param);break;case'detail':renderDetail(pc,param);break;case'approvals':renderApprovals(pc);break;case'kanban':renderKanban(pc);break;case'calendar':renderCalendar(pc);break;case'analytics':renderAnalytics(pc);break;case'archive':renderArchive(pc);break;case'notifications':renderNotifications(pc);break;case'users':renderUsers(pc);break;case'settings':renderSettings(pc);break;case'templates':renderTemplates(pc);break;case'tasks':renderTasks(pc);break;case'trash':renderTrash(pc);break;default:pc.innerHTML='<p>\u0421\u0442\u0440\u0430\u043d\u0438\u0446\u0430 \u043d\u0435 \u043d\u0430\u0439\u0434\u0435\u043d\u0430</p>'}}
+function showPage(name,param){var adminPages=['dashboard','kanban','calendar','analytics','archive','trash','users','settings'];if(currentUser&&currentUser.role!=='admin'&&adminPages.indexOf(name)>=0){name='documents'}currentPage=name;currentPageParam=param;selectedIds.clear();sortCol='';sortDir=1;document.querySelectorAll('.nav-item').forEach(function(n){n.classList.toggle('active',n.dataset.page===name)});if(window.innerWidth<768)document.getElementById('sidebar').classList.remove('open');var pc=document.getElementById('pageContent');switch(name){case'dashboard':renderDashboard(pc);break;case'documents':renderDocuments(pc);break;case'create':renderCreateEdit(pc,param);break;case'detail':renderDetail(pc,param);break;case'approvals':renderApprovals(pc);break;case'kanban':renderKanban(pc);break;case'calendar':renderCalendar(pc);break;case'analytics':renderAnalytics(pc);break;case'archive':renderArchive(pc);break;case'notifications':renderNotifications(pc);break;case'users':renderUsers(pc);break;case'settings':renderSettings(pc);break;case'templates':renderTemplates(pc);break;case'tasks':renderTasks(pc);break;case'trash':renderTrash(pc);break;default:pc.innerHTML='<p>\u0421\u0442\u0440\u0430\u043d\u0438\u0446\u0430 \u043d\u0435 \u043d\u0430\u0439\u0434\u0435\u043d\u0430</p>'}}
 
 function toggleSidebar(){document.getElementById('sidebar').classList.toggle('open')}
 function toggleTheme(){var t=document.documentElement.getAttribute('data-theme')==='dark'?'light':'dark';document.documentElement.setAttribute('data-theme',t);localStorage.setItem('edo-theme',t)}
