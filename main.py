@@ -198,7 +198,10 @@ TYPE_PREFIX = {
     "contract":"ДОГ","invoice":"СЧ","order":"ПР","report":"ОТЧ","memo":"СЗ",
     "statement":"ЗАЯ","protocol":"ПРОТ","letter":"ПИС","nda":"НДА",
     "vacation":"ОТП","trip":"КОМ","purchase":"ЗЗ","job_desc":"ДИ",
-    "act":"АКТ","regulation":"ПОЛ","other":"ДОК",
+    "act":"АКТ","regulation":"ПОЛ",
+    "advance_report":"АО","payment_order":"ПП","invoice_tax":"СФ",
+    "waybill":"ТН","accounting_memo":"БС","power_of_attorney":"ДОВ",
+    "cash_order":"КО","other":"ДОК",
 }
 
 def gen_number(db: Session, doc_type: str) -> str:
