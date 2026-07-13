@@ -1,0 +1,688 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ЭДО - Электронный документооборот</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+--primary:#2563eb;--primary-hover:#1d4ed8;--primary-light:#dbeafe;
+--success:#16a34a;--success-light:#dcfce7;--warning:#d97706;--warning-light:#fef3c7;
+--danger:#dc2626;--danger-light:#fee2e2;--info:#0891b2;--info-light:#cffafe;
+--g50:#f9fafb;--g100:#f3f4f6;--g200:#e5e7eb;--g300:#d1d5db;--g400:#9ca3af;
+--g500:#6b7280;--g600:#4b5563;--g700:#374151;--g800:#1f2937;--g900:#111827;
+--sidebar-w:260px;--header-h:64px;--radius:8px;
+--shadow:0 1px 3px rgba(0,0,0,.1),0 1px 2px rgba(0,0,0,.06);
+--shadow-md:0 4px 6px -1px rgba(0,0,0,.1),0 2px 4px -2px rgba(0,0,0,.1);
+--bg-body:var(--g50);--bg-card:#fff;--bg-sidebar:var(--g900);--text-main:var(--g800);--border:var(--g200);
+}
+[data-theme="dark"]{
+--primary:#3b82f6;--primary-hover:#2563eb;--primary-light:#1e3a5f;
+--success:#22c55e;--success-light:#14532d;--warning:#f59e0b;--warning-light:#78350f;
+--danger:#ef4444;--danger-light:#7f1d1d;--info:#06b6d4;--info-light:#164e63;
+--g50:#1a1a2e;--g100:#16213e;--g200:#2d3748;--g300:#4a5568;--g400:#718096;
+--g500:#a0aec0;--g600:#cbd5e0;--g700:#e2e8f0;--g800:#f7fafc;--g900:#0f0f23;
+--bg-body:#0f0f23;--bg-card:#1a1a2e;--bg-sidebar:#0a0a1a;--text-main:#e2e8f0;--border:#2d3748;
+}
+body{font-family:'Inter',sans-serif;color:var(--text-main);background:var(--bg-body);line-height:1.5}
+a{text-decoration:none;color:inherit}button{cursor:pointer;border:none;font-family:inherit}
+input,select,textarea{font-family:inherit;font-size:inherit}
+.app{display:flex;min-height:100vh}
+.sidebar{position:fixed;left:0;top:0;bottom:0;width:var(--sidebar-w);background:var(--bg-sidebar);color:#fff;display:flex;flex-direction:column;z-index:100;transition:transform .3s}
+.sidebar-logo{padding:20px 24px;display:flex;align-items:center;gap:12px;border-bottom:1px solid var(--g700)}
+.sidebar-logo span:first-child{font-size:28px}.sidebar-logo span:last-child{font-size:20px;font-weight:700}
+.sidebar-nav{flex:1;padding:12px;overflow-y:auto}
+.nav-item{display:flex;align-items:center;gap:12px;padding:10px 14px;border-radius:var(--radius);color:var(--g400);font-size:14px;font-weight:500;cursor:pointer;transition:all .2s;margin-bottom:2px}
+.nav-item:hover{background:rgba(255,255,255,.1);color:#fff}.nav-item.active{background:var(--primary);color:#fff}
+.nav-icon{width:20px;text-align:center;font-size:16px}.nav-label{flex:1}
+.nav-badge{background:var(--danger);color:#fff;font-size:11px;font-weight:600;padding:2px 8px;border-radius:999px}
+.sidebar-footer{padding:16px;border-top:1px solid rgba(255,255,255,.1)}
+.user-info{display:flex;align-items:center;gap:12px}
+.user-avatar{width:40px;height:40px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:600}
+.user-name{font-size:14px;font-weight:600}.user-role{font-size:12px;color:var(--g400)}
+.main{flex:1;margin-left:var(--sidebar-w);display:flex;flex-direction:column}
+.header{height:var(--header-h);background:var(--bg-card);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;padding:0 32px;position:sticky;top:0;z-index:50;gap:12px}
+.search-input{width:100%;max-width:480px;padding:10px 16px;border:1px solid var(--border);border-radius:var(--radius);font-size:14px;background:var(--bg-body);color:var(--text-main);outline:none}
+.search-input:focus{border-color:var(--primary);box-shadow:0 0 0 3px var(--primary-light)}
+.header-actions{display:flex;align-items:center;gap:8px}
+.header-btn{width:40px;height:40px;border-radius:var(--radius);background:transparent;color:var(--text-main);font-size:18px;display:flex;align-items:center;justify-content:center;position:relative}
+.header-btn:hover{background:var(--g100)}
+.notif-dot{position:absolute;top:8px;right:8px;width:8px;height:8px;background:var(--danger);border-radius:50%;display:none}.notif-dot.show{display:block}
+.burger{display:none;width:40px;height:40px;border-radius:var(--radius);background:transparent;color:var(--text-main);font-size:22px;align-items:center;justify-content:center}
+.content{flex:1;padding:24px 32px}
+.page{display:none}.page.active{display:block}
+.page-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:24px;flex-wrap:wrap;gap:12px}
+.page-title{font-size:24px;font-weight:700}
+.btn{display:inline-flex;align-items:center;gap:8px;padding:10px 20px;border-radius:var(--radius);font-weight:500;font-size:14px;transition:all .2s;border:1px solid transparent}
+.btn-primary{background:var(--primary);color:#fff}.btn-primary:hover{background:var(--primary-hover)}
+.btn-secondary{background:var(--bg-card);color:var(--text-main);border-color:var(--border)}.btn-secondary:hover{background:var(--g100)}
+.btn-success{background:var(--success);color:#fff}.btn-danger{background:var(--danger);color:#fff}
+.btn-warning{background:var(--warning);color:#fff}
+.btn-sm{padding:6px 12px;font-size:13px}
+.btn-icon{padding:6px;width:32px;height:32px;display:inline-flex;align-items:center;justify-content:center}
+.card{background:var(--bg-card);border-radius:var(--radius);box-shadow:var(--shadow);border:1px solid var(--border)}
+.card-header{padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}
+.card-header h3{font-size:16px}.card-body{padding:20px}
+.badge{display:inline-flex;align-items:center;padding:2px 10px;border-radius:999px;font-size:12px;font-weight:500}
+.badge-draft{background:var(--g100);color:var(--g600)}.badge-pending{background:var(--warning-light);color:var(--warning)}
+.badge-approved{background:var(--success-light);color:var(--success)}.badge-rejected{background:var(--danger-light);color:var(--danger)}
+.badge-archived{background:var(--info-light);color:var(--info)}
+.stats-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:16px;margin-bottom:24px}
+.stat-card{background:var(--bg-card);border-radius:var(--radius);padding:20px;box-shadow:var(--shadow);border:1px solid var(--border)}
+.stat-icon{width:48px;height:48px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:24px;margin-bottom:12px}
+.stat-value{font-size:32px;font-weight:700}.stat-label{font-size:14px;color:var(--g500);margin-top:4px}
+.table-wrapper{overflow-x:auto}table{width:100%;border-collapse:collapse}
+th{text-align:left;padding:12px 16px;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--g500);background:var(--g50);border-bottom:1px solid var(--border)}
+td{padding:12px 16px;font-size:14px;border-bottom:1px solid var(--g100)}tr:hover td{background:var(--g50)}
+.clickable{cursor:pointer}.link{color:var(--primary);font-weight:500;cursor:pointer}.link:hover{text-decoration:underline}
+.form-group{margin-bottom:16px}.form-label{display:block;font-size:14px;font-weight:500;color:var(--g500);margin-bottom:6px}
+.form-input{width:100%;padding:10px 14px;border:1px solid var(--border);border-radius:var(--radius);font-size:14px;outline:none;background:var(--bg-card);color:var(--text-main)}
+.form-input:focus{border-color:var(--primary);box-shadow:0 0 0 3px var(--primary-light)}
+.form-select{width:100%;padding:10px 14px;border:1px solid var(--border);border-radius:var(--radius);font-size:14px;background:var(--bg-card);color:var(--text-main);outline:none}
+textarea.form-input{resize:vertical;min-height:100px}
+.form-row{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.form-row-4{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:16px}
+.dash-grid{display:grid;grid-template-columns:1.5fr 1fr;gap:24px}
+.detail-grid{display:grid;grid-template-columns:1fr 340px;gap:24px}
+.info-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.info-label{font-size:12px;color:var(--g500);text-transform:uppercase;letter-spacing:.05em;font-weight:600}
+.info-value{display:block;font-size:14px;margin-top:2px}
+.doc-content{white-space:pre-wrap;font-size:14px;line-height:1.7;color:var(--g600)}
+.comment{padding:12px;background:var(--g50);border-radius:var(--radius);margin-bottom:12px}
+.comment-header{display:flex;justify-content:space-between;font-size:13px;margin-bottom:8px}
+.comment-date{color:var(--g400);font-size:12px}
+.approver-item{display:flex;gap:12px;align-items:flex-start;margin-bottom:12px}
+.approver-status{font-size:18px;margin-top:2px}.approver-name{font-size:14px;font-weight:500}
+.approver-date{font-size:12px;color:var(--g400)}.approver-comment{font-size:13px;color:var(--g600);margin-top:4px}
+.filter-bar{display:flex;gap:16px;flex-wrap:wrap;align-items:center}
+.filter-bar .form-select,.filter-bar .form-input{width:auto;min-width:160px}
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;z-index:1000}
+.modal-overlay.hidden{display:none}
+.modal{background:var(--bg-card);border-radius:12px;width:100%;max-width:560px;max-height:90vh;overflow-y:auto;box-shadow:var(--shadow-md)}
+.modal-header{padding:20px 24px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}
+.modal-body{padding:24px}.modal-footer{padding:16px 24px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:12px}
+.approval-cards{display:flex;flex-direction:column;gap:16px}
+.empty-state{text-align:center;padding:60px 20px;color:var(--g400)}
+.empty-icon{font-size:48px;margin-bottom:16px}.empty-title{font-size:18px;font-weight:600;margin-bottom:8px}
+.back-link{font-size:14px;color:var(--g500);cursor:pointer}.back-link:hover{color:var(--primary)}
+.template-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin-bottom:24px}
+.template-card{padding:20px;cursor:pointer;transition:all .2s;text-align:center}
+.template-card:hover{box-shadow:var(--shadow-md);transform:translateY(-2px)}
+.template-icon{font-size:36px;margin-bottom:12px}.template-name{font-size:14px;font-weight:600}
+.notif-item{display:flex;gap:12px;padding:16px;border-bottom:1px solid var(--g100);cursor:pointer;transition:background .2s}
+.notif-item:hover{background:var(--g50)}.notif-item.unread{background:var(--primary-light)}
+.notif-icon{width:40px;height:40px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0}
+.notif-content{flex:1}.notif-title{font-size:14px;font-weight:500}
+.notif-msg{font-size:13px;color:var(--g500);margin-top:2px}.notif-time{font-size:12px;color:var(--g400);margin-top:4px}
+.history-item{display:flex;gap:12px;padding:10px 0;border-bottom:1px solid var(--g100);font-size:13px}
+.history-item:last-child{border-bottom:none}
+.history-dot{width:8px;height:8px;border-radius:50%;background:var(--primary);margin-top:6px;flex-shrink:0}
+.history-text{color:var(--g600)}.history-date{color:var(--g400);font-size:12px}
+.deadline{font-size:13px;padding:4px 10px;border-radius:var(--radius);display:inline-flex;align-items:center;gap:4px}
+.deadline-ok{background:var(--success-light);color:var(--success)}.deadline-soon{background:var(--warning-light);color:var(--warning)}
+.deadline-overdue{background:var(--danger-light);color:var(--danger)}
+.doc-number{font-size:13px;color:var(--g500);font-weight:400;margin-left:8px}
+.chart-grid{display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-bottom:24px}
+.bar-chart{display:flex;align-items:flex-end;gap:12px;height:160px;padding:12px 0}
+.bar-wrap{display:flex;flex-direction:column;align-items:center;flex:1;gap:6px}
+.bar{width:100%;border-radius:4px 4px 0 0;min-height:4px;transition:height .5s}
+.bar-label{font-size:11px;color:var(--g500);white-space:nowrap}.bar-value{font-size:12px;font-weight:600}
+.pie-chart{position:relative;width:140px;height:140px;border-radius:50%;margin:0 auto}
+.pie-legend{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin-top:16px}
+.pie-legend-item{display:flex;align-items:center;gap:4px;font-size:12px;color:var(--g600)}
+.pie-legend-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0}
+.sig-box{border:2px dashed var(--g300);border-radius:var(--radius);padding:16px;text-align:center;margin-top:12px}
+.sig-box.signed{border-color:var(--success);background:var(--success-light)}
+.sig-stamp{font-size:13px;color:var(--success);font-weight:600}.sig-hash{font-size:10px;color:var(--g400);margin-top:4px;word-break:break-all;font-family:monospace}
+.tag{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:500;cursor:default}
+.tag-red{background:#fee2e2;color:#dc2626}.tag-blue{background:#dbeafe;color:#2563eb}
+.tag-green{background:#dcfce7;color:#16a34a}.tag-yellow{background:#fef3c7;color:#d97706}
+.tag-purple{background:#ede9fe;color:#7c3aed}.tag-pink{background:#fce7f3;color:#db2777}
+.tags-wrap{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}
+.progress-bar{width:100%;height:8px;background:var(--g200);border-radius:999px;overflow:hidden;margin:8px 0}
+.progress-fill{height:100%;border-radius:999px;transition:width .5s;background:linear-gradient(90deg,var(--primary),var(--success))}
+.progress-text{font-size:12px;color:var(--g500);text-align:center}
+.kanban{display:grid;grid-template-columns:repeat(5,1fr);gap:16px;min-height:400px}
+.kanban-col{background:var(--g50);border-radius:var(--radius);padding:12px;min-height:200px}
+.kanban-col-title{font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;margin-bottom:12px;display:flex;align-items:center;gap:6px}
+.kanban-card{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);padding:12px;margin-bottom:8px;cursor:pointer;transition:box-shadow .2s}
+.kanban-card:hover{box-shadow:var(--shadow-md)}
+.kanban-card-title{font-size:13px;font-weight:600;margin-bottom:6px}
+.kanban-card-meta{font-size:11px;color:var(--g400)}
+.cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:2px}
+.cal-header{text-align:center;font-size:12px;font-weight:600;color:var(--g500);padding:8px}
+.cal-day{min-height:80px;background:var(--bg-card);border:1px solid var(--border);border-radius:4px;padding:4px;font-size:12px}
+.cal-day.other-month{opacity:.3}.cal-day.today{border-color:var(--primary);background:var(--primary-light)}
+.cal-date{font-weight:600;margin-bottom:4px;font-size:11px}
+.cal-event{font-size:10px;padding:2px 4px;border-radius:3px;margin-bottom:2px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cal-nav{display:flex;align-items:center;gap:16px;margin-bottom:16px}
+.drop-zone{border:2px dashed var(--g300);border-radius:var(--radius);padding:32px;text-align:center;color:var(--g400);cursor:pointer}
+.drop-zone.dragover{border-color:var(--primary);background:var(--primary-light);color:var(--primary)}
+.analytics-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:24px;margin-bottom:24px}
+.metric-card{padding:20px}.metric-value{font-size:28px;font-weight:700}.metric-label{font-size:13px;color:var(--g500);margin-top:4px}
+.dept-card{margin-bottom:16px}
+.dept-header{padding:14px 20px;background:var(--g50);font-weight:600;font-size:14px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;cursor:pointer}
+.settings-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(380px,1fr));gap:24px}
+.sidebar-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:99}
+.toast-container{position:fixed;top:80px;right:24px;z-index:9999;display:flex;flex-direction:column;gap:8px;pointer-events:none}
+.toast{pointer-events:auto;display:flex;align-items:center;gap:12px;padding:14px 20px;border-radius:var(--radius);background:var(--bg-card);border:1px solid var(--border);box-shadow:var(--shadow-md);font-size:14px;min-width:300px;max-width:440px;animation:toastIn .3s ease,toastOut .3s ease 2.7s forwards;color:var(--text-main)}
+.toast-icon{font-size:20px;flex-shrink:0}
+.toast-success{border-left:4px solid var(--success)}.toast-success .toast-icon{color:var(--success)}
+.toast-error{border-left:4px solid var(--danger)}.toast-error .toast-icon{color:var(--danger)}
+.toast-info{border-left:4px solid var(--primary)}.toast-info .toast-icon{color:var(--primary)}
+@keyframes toastIn{from{opacity:0;transform:translateX(100px)}to{opacity:1;transform:translateX(0)}}
+@keyframes toastOut{from{opacity:1;transform:translateX(0)}to{opacity:0;transform:translateX(100px)}}
+.theme-toggle{width:40px;height:40px;border-radius:var(--radius);background:transparent;color:var(--text-main);font-size:18px;display:flex;align-items:center;justify-content:center;cursor:pointer;border:none}
+.theme-toggle:hover{background:var(--g100)}
+.auth-page{display:flex;align-items:center;justify-content:center;min-height:100vh}
+.auth-card{background:var(--bg-card);border-radius:12px;box-shadow:var(--shadow-md);border:1px solid var(--border);padding:40px;width:100%;max-width:420px}
+.auth-logo{text-align:center;font-size:48px;margin-bottom:8px}
+.auth-title{text-align:center;font-size:24px;font-weight:700;margin-bottom:24px}
+.auth-toggle{text-align:center;margin-top:16px;font-size:14px;color:var(--g500)}
+.auth-toggle a{color:var(--primary);cursor:pointer;font-weight:500}
+.auth-error{background:var(--danger-light);color:var(--danger);padding:10px;border-radius:var(--radius);font-size:13px;margin-bottom:16px;display:none}
+.app-wrap{display:none}
+.logout-btn{background:rgba(255,255,255,.05);color:var(--g400);font-size:13px;padding:8px 14px;border-radius:var(--radius);cursor:pointer;width:100%;text-align:center;margin-top:12px;border:1px solid rgba(255,255,255,.1)}
+.logout-btn:hover{background:rgba(255,255,255,.15);color:#fff}
+.user-avatar-sm{width:32px;height:32px;border-radius:50%;background:var(--primary);color:#fff;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;flex-shrink:0}
+@media(max-width:768px){
+.sidebar{transform:translateX(-100%)}.sidebar.open{transform:translateX(0)}
+.sidebar-overlay.open{display:block}
+.main{margin-left:0}.burger{display:flex}
+.content{padding:16px}.header{padding:0 16px}
+.dash-grid,.detail-grid,.chart-grid{grid-template-columns:1fr}
+.form-row,.form-row-4{grid-template-columns:1fr}
+.stats-grid{grid-template-columns:repeat(2,1fr)}
+.kanban{grid-template-columns:1fr}
+}
+@media print{.sidebar,.header,.btn,.burger,.sidebar-overlay,.toast-container,.no-print{display:none!important}.main{margin-left:0!important}.content{padding:0!important}}
+</style>
+</head>
+<body>
+<!-- AUTH -->
+<div class="auth-page" id="authPage">
+<div class="auth-card">
+<div class="auth-logo">&#128196;</div>
+<div class="auth-title" id="authTitle">Вход в ЭДО</div>
+<div class="auth-error" id="authError"></div>
+<div id="loginForm">
+<div class="form-group"><label class="form-label">Email</label><input type="email" class="form-input" id="authEmail" placeholder="email@example.com"></div>
+<div class="form-group"><label class="form-label">Пароль</label><input type="password" class="form-input" id="authPass" placeholder="Пароль" onkeydown="if(event.key==='Enter')doLogin()"></div>
+<button class="btn btn-primary" style="width:100%" onclick="doLogin()">Войти</button>
+<div class="auth-toggle">Нет аккаунта? <a onclick="showRegForm()">Регистрация</a></div>
+</div>
+<div id="regForm" style="display:none">
+<div class="form-group"><label class="form-label">ФИО *</label><input type="text" class="form-input" id="regName" placeholder="Иванов Иван Иванович"></div>
+<div class="form-group"><label class="form-label">Email *</label><input type="email" class="form-input" id="regEmail" placeholder="email@example.com"></div>
+<div class="form-group"><label class="form-label">Пароль *</label><input type="password" class="form-input" id="regPass" placeholder="Минимум 6 символов"></div>
+<div class="form-row">
+<div class="form-group"><label class="form-label">Отдел</label><input type="text" class="form-input" id="regDept"></div>
+<div class="form-group"><label class="form-label">Должность</label><input type="text" class="form-input" id="regPos"></div>
+</div>
+<button class="btn btn-primary" style="width:100%" onclick="doRegister()">Зарегистрироваться</button>
+<div class="auth-toggle">Есть аккаунт? <a onclick="showLoginForm()">Войти</a></div>
+</div>
+</div>
+</div>
+
+<!-- APP -->
+<div class="app-wrap" id="appWrap">
+<div class="app">
+<div class="sidebar-overlay" id="sidebarOverlay" onclick="toggleSidebar()"></div>
+<aside class="sidebar" id="sidebar">
+<div class="sidebar-logo"><span>&#128196;</span><span>ЭДО</span></div>
+<nav class="sidebar-nav" id="sidebar-nav"></nav>
+<div class="sidebar-footer">
+<div class="user-info"><div class="user-avatar" id="sb-avatar"></div><div><div class="user-name" id="sb-name"></div><div class="user-role" id="sb-role"></div></div></div>
+<button class="logout-btn" onclick="doLogout()">&#128682; Выйти</button>
+</div>
+</aside>
+<div class="main">
+<header class="header">
+<button class="burger" onclick="toggleSidebar()">&#9776;</button>
+<input type="text" class="search-input" placeholder="Поиск документов..." id="globalSearch" onkeydown="if(event.key==='Enter')globalSearchHandler()">
+<div class="header-actions">
+<button class="theme-toggle" onclick="toggleTheme()" title="Тема">&#127769;</button>
+<button class="header-btn" title="Уведомления" onclick="showPage('notifications')">&#128276;<span class="notif-dot" id="notif-dot"></span></button>
+</div>
+</header>
+<div class="content">
+<div class="page active" id="page-dashboard"></div>
+<div class="page" id="page-documents"></div>
+<div class="page" id="page-create"></div>
+<div class="page" id="page-detail"></div>
+<div class="page" id="page-approval"></div>
+<div class="page" id="page-kanban"></div>
+<div class="page" id="page-calendar"></div>
+<div class="page" id="page-analytics"></div>
+<div class="page" id="page-archive"></div>
+<div class="page" id="page-notifications"></div>
+<div class="page" id="page-users"></div>
+<div class="page" id="page-settings"></div>
+<div class="page" id="page-templates"></div>
+</div>
+</div>
+</div>
+</div>
+<!-- Modals -->
+<div class="modal-overlay hidden" id="userModal" onclick="if(event.target===this)this.classList.add('hidden')">
+<div class="modal"><div class="modal-header"><h3>Новый сотрудник</h3><button class="btn btn-sm btn-secondary" onclick="document.getElementById('userModal').classList.add('hidden')">&#10005;</button></div>
+<div class="modal-body">
+<div class="form-group"><label class="form-label">ФИО *</label><input type="text" class="form-input" id="newUserName"></div>
+<div class="form-group"><label class="form-label">Email *</label><input type="email" class="form-input" id="newUserEmail"></div>
+<div class="form-group"><label class="form-label">Пароль</label><input type="text" class="form-input" id="newUserPass" value="123456"></div>
+<div class="form-row"><div class="form-group"><label class="form-label">Отдел</label><input type="text" class="form-input" id="newUserDept"></div><div class="form-group"><label class="form-label">Должность</label><input type="text" class="form-input" id="newUserPos"></div></div>
+<div class="form-group"><label class="form-label">Роль</label><select class="form-select" id="newUserRole"><option value="user">Пользователь</option><option value="manager">Менеджер</option><option value="admin">Администратор</option></select></div>
+</div><div class="modal-footer"><button class="btn btn-secondary" onclick="document.getElementById('userModal').classList.add('hidden')">Отмена</button><button class="btn btn-primary" onclick="addUser()">Добавить</button></div></div></div>
+<div class="toast-container" id="toastContainer"></div>
+
+<script>
+// === GLOBALS ===
+let TOKEN=localStorage.getItem('edo-token')||'';
+let CU=null; // current user
+let docs=[], allUsers=[], allTags=[], notifs=[];
+let favorites=JSON.parse(localStorage.getItem('edo-fav')||'[]');
+let tempAttachments=[], tempTags=[], tempRelated=[], editDocId=null;
+let calMonth=new Date().getMonth(), calYear=new Date().getFullYear();
+const TL={contract:'Договор',invoice:'Счёт',order:'Приказ',report:'Отчёт',memo:'Записка',statement:'Заявление',other:'Прочее'};
+const SL={draft:'Черновик',pending:'На согласовании',approved:'Согласован',rejected:'Отклонён',archived:'В архиве'};
+const RL={admin:'Админ',manager:'Менеджер',user:'Пользователь'};
+const TEMPLATES=[
+{name:'Договор',type:'contract',icon:'&#128221;',content:'ДОГОВОР №___\n\nг. Москва\n\n1. ПРЕДМЕТ ДОГОВОРА\n________________\n\n2. СТОИМОСТЬ\n________ руб.'},
+{name:'Счёт',type:'invoice',icon:'&#128179;',content:'СЧЁТ НА ОПЛАТУ №___\n\nПоставщик: ________\nПокупатель: ________\n\n1. ________ — ________ руб.\nИтого: ________ руб.'},
+{name:'Приказ',type:'order',icon:'&#128203;',content:'ПРИКАЗ №___\n\nПРИКАЗЫВАЮ:\n1. ________'},
+{name:'Отчёт',type:'report',icon:'&#128202;',content:'ОТЧЁТ\nза период: ________\n\n1. ПОКАЗАТЕЛИ\n________'},
+{name:'Записка',type:'memo',icon:'&#128172;',content:'СЛУЖЕБНАЯ ЗАПИСКА\n\nКому: ________\nОт: ________\nТема: ________\n\n________'},
+{name:'Заявление',type:'statement',icon:'&#128221;',content:'ЗАЯВЛЕНИЕ\n\nПрошу ________'},
+{name:'Акт',type:'other',icon:'&#128196;',content:'АКТ №___\n\n1. ________ — ________ руб.\nВсего: ________ руб.'}
+];
+
+// === UTILS ===
+function esc(s){if(!s)return'';const d=document.createElement('div');d.appendChild(document.createTextNode(String(s)));return d.innerHTML}
+function fd(d){if(!d)return'';return new Date(d).toLocaleDateString('ru-RU',{day:'2-digit',month:'2-digit',year:'numeric'})}
+function fdt(d){if(!d)return'';return new Date(d).toLocaleString('ru-RU',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'})}
+function ini(n){return(n||'').split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase()}
+function dlClass(dl){if(!dl)return'';const now=new Date();now.setHours(0,0,0,0);const d=new Date(dl);d.setHours(0,0,0,0);const diff=(d-now)/864e5;return diff<0?'deadline-overdue':diff<=2?'deadline-soon':'deadline-ok'}
+function dlText(dl){if(!dl)return'';const c=dlClass(dl),l=c==='deadline-overdue'?'Просрочен':c==='deadline-soon'?'Скоро':'В срок';return`<span class="deadline ${c}">&#128197; ${fd(dl)} (${l})</span>`}
+function showToast(msg,type='info'){const tc=document.getElementById('toastContainer');const icons={success:'&#10004;',error:'&#10006;',info:'&#8505;',warning:'&#9888;'};const t=document.createElement('div');t.className=`toast toast-${type}`;t.innerHTML=`<span class="toast-icon">${icons[type]||icons.info}</span><span>${esc(msg)}</span>`;tc.appendChild(t);setTimeout(()=>t.remove(),3000)}
+function canApprove(doc){if(!CU||doc.status!=='pending')return false;const idx=doc.approvals.findIndex(a=>a.user_id===CU.id&&a.status==='pending');if(idx<0)return false;if(!doc.sequential)return true;for(let i=0;i<idx;i++){if(doc.approvals[i].status!=='approved')return false}return true}
+function renderDocTags(tags){if(!tags||!tags.length)return'';return tags.map(t=>`<span class="tag tag-${esc(t.color)}">${esc(t.name)}</span>`).join(' ')}
+
+// === API ===
+async function api(path,opts={}){
+const h={'Content-Type':'application/json'};
+if(TOKEN)h['Authorization']='Bearer '+TOKEN;
+const r=await fetch('/api'+path,{...opts,headers:h});
+if(r.status===401){doLogout();throw new Error('Сессия истекла')}
+if(!r.ok){const e=await r.json().catch(()=>({}));throw new Error(e.detail||'Ошибка сервера')}
+if(r.status===204)return{};
+return r.json();
+}
+async function loadDocs(){docs=await api('/documents')}
+async function loadNotifs(){notifs=await api('/notifications');updDot()}
+
+// === AUTH ===
+function showLoginForm(){document.getElementById('loginForm').style.display='block';document.getElementById('regForm').style.display='none';document.getElementById('authTitle').textContent='Вход в ЭДО';document.getElementById('authError').style.display='none'}
+function showRegForm(){document.getElementById('loginForm').style.display='none';document.getElementById('regForm').style.display='block';document.getElementById('authTitle').textContent='Регистрация';document.getElementById('authError').style.display='none'}
+function showAuthErr(m){const e=document.getElementById('authError');e.textContent=m;e.style.display='block'}
+
+async function doLogin(){
+const email=document.getElementById('authEmail').value.trim(),pass=document.getElementById('authPass').value;
+if(!email||!pass){showAuthErr('Заполните все поля');return}
+try{const d=await api('/login',{method:'POST',body:JSON.stringify({email,password:pass})});TOKEN=d.access_token;CU=d.user;localStorage.setItem('edo-token',TOKEN);enterApp()}catch(e){showAuthErr(e.message)}
+}
+async function doRegister(){
+const name=document.getElementById('regName').value.trim(),email=document.getElementById('regEmail').value.trim(),pass=document.getElementById('regPass').value,dept=document.getElementById('regDept').value.trim(),pos=document.getElementById('regPos').value.trim();
+if(!name||!email||!pass){showAuthErr('Заполните обязательные поля');return}
+if(pass.length<6){showAuthErr('Пароль минимум 6 символов');return}
+try{const d=await api('/register',{method:'POST',body:JSON.stringify({name,email,password:pass,department:dept,position:pos})});TOKEN=d.access_token;CU=d.user;localStorage.setItem('edo-token',TOKEN);enterApp()}catch(e){showAuthErr(e.message)}
+}
+function doLogout(){TOKEN='';CU=null;localStorage.removeItem('edo-token');document.getElementById('authPage').style.display='flex';document.getElementById('appWrap').style.display='none'}
+
+async function enterApp(){
+document.getElementById('authPage').style.display='none';document.getElementById('appWrap').style.display='block';
+try{
+if(!CU)CU=await api('/me');
+[allUsers,allTags]=await Promise.all([api('/users'),api('/tags')]);
+await loadDocs();await loadNotifs();
+renderSB();showPage('dashboard');
+}catch(e){doLogout()}
+}
+
+// === THEME ===
+function toggleTheme(){const t=document.documentElement.getAttribute('data-theme')==='dark'?'':'dark';document.documentElement.setAttribute('data-theme',t);localStorage.setItem('edo-theme',t)}
+(function(){const t=localStorage.getItem('edo-theme');if(t)document.documentElement.setAttribute('data-theme',t)})();
+
+// === SIDEBAR ===
+function toggleSidebar(){document.getElementById('sidebar').classList.toggle('open');document.getElementById('sidebarOverlay').classList.toggle('open')}
+function renderSB(){
+if(!CU)return;
+document.getElementById('sb-avatar').textContent=ini(CU.name);document.getElementById('sb-avatar').style.background=CU.color;
+document.getElementById('sb-name').textContent=CU.name;document.getElementById('sb-role').textContent=CU.position||RL[CU.role]||'';
+const items=[{p:'dashboard',i:'&#9632;',l:'Дашборд'},{p:'documents',i:'&#128196;',l:'Документы'},{p:'create',i:'&#10010;',l:'Новый документ'},{p:'approval',i:'&#10004;',l:'Согласование'},{p:'kanban',i:'&#9638;',l:'Канбан'},{p:'calendar',i:'&#128197;',l:'Календарь'},{p:'analytics',i:'&#128202;',l:'Аналитика'},{p:'archive',i:'&#128451;',l:'Архив'},{p:'notifications',i:'&#128276;',l:'Уведомления'}];
+if(CU.role==='admin')items.push({p:'users',i:'&#128101;',l:'Сотрудники'},{p:'settings',i:'&#9881;',l:'Настройки'});
+document.getElementById('sidebar-nav').innerHTML=items.map(x=>`<div class="nav-item${x.p==='dashboard'?' active':''}" data-page="${x.p}" onclick="showPage('${x.p}')"><span class="nav-icon">${x.i}</span><span class="nav-label">${x.l}</span></div>`).join('');
+}
+function updDot(){const d=document.getElementById('notif-dot');if(d)d.classList.toggle('show',notifs.some(n=>!n.read))}
+
+// === NAVIGATION ===
+function showPage(name,param){
+document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
+const nav=document.querySelector(`.nav-item[data-page="${name}"]`);if(nav)nav.classList.add('active');
+const pg=document.getElementById('page-'+name);if(pg)pg.classList.add('active');
+if(name==='dashboard')renderDash();
+else if(name==='documents')renderDocs();
+else if(name==='create')renderCreate();
+else if(name==='detail')renderDetail(param);
+else if(name==='approval')renderApproval();
+else if(name==='kanban')renderKanban();
+else if(name==='calendar')renderCalendar();
+else if(name==='analytics')renderAnalytics();
+else if(name==='archive')renderArchive();
+else if(name==='notifications')renderNotifs();
+else if(name==='users')renderUsers();
+else if(name==='settings')renderSettings();
+else if(name==='templates')renderTemplates();
+if(window.innerWidth<=768){document.getElementById('sidebar').classList.remove('open');document.getElementById('sidebarOverlay').classList.remove('open')}
+}
+function globalSearchHandler(){const q=document.getElementById('globalSearch').value.trim();if(!q)return;showPage('documents');setTimeout(()=>{const s=document.getElementById('filterSearch');if(s){s.value=q;renderDocsTable()}},50)}
+
+// === DASHBOARD ===
+function renderDash(){
+const s={total:docs.length,draft:0,pending:0,approved:0,rejected:0,archived:0};
+docs.forEach(d=>s[d.status]++);
+const pg=document.getElementById('page-dashboard');
+const pending=docs.filter(d=>canApprove(d));
+const recent=[...docs].sort((a,b)=>new Date(b.updated_at)-new Date(a.updated_at)).slice(0,5);
+// Charts
+const byType={};docs.forEach(d=>{byType[d.doc_type]=(byType[d.doc_type]||0)+1});
+const maxT=Math.max(...Object.values(byType),1);
+const colors={contract:'var(--primary)',invoice:'var(--success)',order:'var(--warning)',report:'var(--info)',memo:'var(--danger)',statement:'#7c3aed',other:'var(--g400)'};
+const barHtml=Object.entries(byType).map(([t,c])=>`<div class="bar-wrap"><div class="bar-value">${c}</div><div class="bar" style="height:${c/maxT*120}px;background:${colors[t]||'var(--g400)'}"></div><div class="bar-label">${TL[t]||t}</div></div>`).join('');
+const stColors={draft:'var(--g400)',pending:'var(--warning)',approved:'var(--success)',rejected:'var(--danger)',archived:'var(--info)'};
+const total=s.total||1;let conic=[],cum=0;
+['draft','pending','approved','rejected','archived'].forEach(st=>{if(s[st]){const pct=s[st]/total*100;conic.push(`${stColors[st]} ${cum}% ${cum+pct}%`);cum+=pct}});
+const pieStyle=conic.length?`background:conic-gradient(${conic.join(',')})`:'background:var(--g200)';
+const legendHtml=['draft','pending','approved','rejected','archived'].filter(st=>s[st]).map(st=>`<div class="pie-legend-item"><div class="pie-legend-dot" style="background:${stColors[st]}"></div>${SL[st]}: ${s[st]}</div>`).join('');
+pg.innerHTML=`<div class="page-header"><h1 class="page-title">Дашборд</h1></div>
+<div class="stats-grid">
+<div class="stat-card"><div class="stat-icon" style="background:var(--primary-light);color:var(--primary)">&#128196;</div><div class="stat-value">${s.total}</div><div class="stat-label">Всего</div></div>
+<div class="stat-card"><div class="stat-icon" style="background:var(--warning-light);color:var(--warning)">&#9203;</div><div class="stat-value">${s.pending}</div><div class="stat-label">На согласовании</div></div>
+<div class="stat-card"><div class="stat-icon" style="background:var(--success-light);color:var(--success)">&#10004;</div><div class="stat-value">${s.approved}</div><div class="stat-label">Согласовано</div></div>
+<div class="stat-card"><div class="stat-icon" style="background:var(--danger-light);color:var(--danger)">&#10006;</div><div class="stat-value">${s.rejected}</div><div class="stat-label">Отклонено</div></div>
+</div>
+<div class="chart-grid"><div class="card"><div class="card-header"><h3>По типам</h3></div><div class="card-body"><div class="bar-chart">${barHtml||'<div class="empty-state">Нет данных</div>'}</div></div></div>
+<div class="card"><div class="card-header"><h3>По статусам</h3></div><div class="card-body"><div class="pie-chart" style="${pieStyle}"></div><div class="pie-legend">${legendHtml}</div></div></div></div>
+<div class="dash-grid"><div class="card"><div class="card-header"><h3>Последние документы</h3></div><div class="card-body"><div class="table-wrapper"><table><thead><tr><th>Документ</th><th>Статус</th><th>Автор</th><th>Дата</th></tr></thead><tbody>${recent.map(d=>`<tr class="clickable" onclick="showPage('detail',${d.id})"><td><strong>${esc(d.title)}</strong><span class="doc-number">${esc(d.number)}</span></td><td><span class="badge badge-${d.status}">${SL[d.status]}</span></td><td>${esc(d.author_name)}</td><td>${fd(d.updated_at)}</td></tr>`).join('')||'<tr><td colspan="4" style="text-align:center;color:var(--g400)">Нет документов</td></tr>'}</tbody></table></div></div></div>
+<div class="card"><div class="card-header"><h3>Ожидают согласования</h3></div><div class="card-body">${pending.length?pending.map(d=>`<div style="padding:10px 0;border-bottom:1px solid var(--g100);cursor:pointer" onclick="showPage('detail',${d.id})"><div style="font-size:14px;font-weight:500">${esc(d.title)}</div><div style="font-size:12px;color:var(--g400);margin-top:4px">${esc(d.author_name)} &middot; ${fd(d.created_at)}</div></div>`).join(''):'<div style="text-align:center;padding:20px;color:var(--g400)">Нет документов</div>'}</div></div></div>`;
+}
+
+// === DOCUMENTS ===
+function renderDocs(){
+const pg=document.getElementById('page-documents');
+pg.innerHTML=`<div class="page-header"><h1 class="page-title">Документы</h1><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-secondary btn-sm" onclick="showPage('templates')">&#128203; Шаблоны</button><button class="btn btn-primary" onclick="showPage('create')">+ Новый</button></div></div>
+<div class="card" style="margin-bottom:20px"><div class="card-body"><div class="filter-bar">
+<select class="form-select" id="filterStatus" onchange="renderDocsTable()"><option value="">Все статусы</option><option value="draft">Черновик</option><option value="pending">На согласовании</option><option value="approved">Согласован</option><option value="rejected">Отклонён</option></select>
+<select class="form-select" id="filterType" onchange="renderDocsTable()"><option value="">Все типы</option><option value="contract">Договор</option><option value="invoice">Счёт</option><option value="order">Приказ</option><option value="report">Отчёт</option><option value="memo">Записка</option><option value="statement">Заявление</option><option value="other">Прочее</option></select>
+<input type="text" class="form-input" placeholder="Поиск..." id="filterSearch" oninput="renderDocsTable()" style="max-width:260px">
+</div></div></div>
+<div class="card"><div class="table-wrapper"><table><thead><tr><th>&#11088;</th><th>№</th><th>Название</th><th>Метки</th><th>Тип</th><th>Статус</th><th>Автор</th><th>Срок</th><th></th></tr></thead><tbody id="docs-tbody"></tbody></table></div><div id="docs-empty" class="empty-state" style="display:none"><div class="empty-icon">&#128269;</div><div class="empty-title">Не найдено</div></div></div>`;
+renderDocsTable();
+}
+function renderDocsTable(){
+const st=document.getElementById('filterStatus')?.value||'',tp=document.getElementById('filterType')?.value||'',q=(document.getElementById('filterSearch')?.value||'').toLowerCase();
+let f=docs.filter(d=>{if(d.status==='archived')return false;if(st&&d.status!==st)return false;if(tp&&d.doc_type!==tp)return false;if(q&&!d.title.toLowerCase().includes(q)&&!(d.number||'').toLowerCase().includes(q))return false;return true});
+const tb=document.getElementById('docs-tbody'),em=document.getElementById('docs-empty');
+if(!tb)return;
+if(!f.length){tb.innerHTML='';if(em)em.style.display='block';return}
+if(em)em.style.display='none';
+tb.innerHTML=f.map(d=>{const isFav=favorites.includes(d.id);const isAuthor=CU&&d.author_id===CU.id;
+return`<tr><td><span style="cursor:pointer;font-size:18px" onclick="toggleFav(${d.id})">${isFav?'&#11088;':'&#9734;'}</span></td><td style="font-size:12px;color:var(--g400)">${esc(d.number)}</td><td><span class="link" onclick="showPage('detail',${d.id})">${esc(d.title)}</span>${d.priority==='high'?' <span style="color:var(--warning)">&#9733;</span>':d.priority==='urgent'?' <span style="color:var(--danger)">&#9733;&#9733;</span>':''}</td><td><div class="tags-wrap">${renderDocTags(d.tags)}</div></td><td>${TL[d.doc_type]||d.doc_type}</td><td><span class="badge badge-${d.status}">${SL[d.status]}</span></td><td>${esc(d.author_name)}</td><td>${d.deadline?dlText(d.deadline):'—'}</td><td><div style="display:flex;gap:4px"><button class="btn btn-sm btn-secondary" onclick="showPage('detail',${d.id})">&#128065;</button>${d.status==='draft'&&isAuthor?`<button class="btn btn-sm btn-warning" onclick="startEdit(${d.id})">&#9998;</button><button class="btn btn-sm btn-danger" onclick="delDoc(${d.id})">&#128465;</button>`:''}${d.status==='rejected'&&isAuthor?`<button class="btn btn-sm btn-primary" onclick="resendDoc(${d.id})">&#128257;</button>`:''}${d.status==='pending'&&isAuthor?`<button class="btn btn-sm btn-warning" onclick="recallDoc(${d.id})">&#8617;</button>`:''}<button class="btn btn-sm btn-secondary" onclick="copyDoc(${d.id})" title="Копировать">&#128203;</button></div></td></tr>`}).join('');
+}
+function toggleFav(id){const idx=favorites.indexOf(id);if(idx>=0)favorites.splice(idx,1);else favorites.push(id);localStorage.setItem('edo-fav',JSON.stringify(favorites));renderDocsTable()}
+
+// === TEMPLATES ===
+function renderTemplates(){document.getElementById('page-templates').innerHTML=`<div class="page-header"><h1 class="page-title">Шаблоны</h1><button class="btn btn-secondary btn-sm" onclick="showPage('documents')">&larr; Назад</button></div><div class="template-grid">${TEMPLATES.map((t,i)=>`<div class="card template-card" onclick="useTpl(${i})"><div class="template-icon">${t.icon}</div><div class="template-name">${t.name}</div></div>`).join('')}</div>`}
+function useTpl(i){showPage('create');setTimeout(()=>{document.getElementById('docType').value=TEMPLATES[i].type;document.getElementById('docContent').value=TEMPLATES[i].content},50)}
+
+// === CREATE/EDIT ===
+function renderCreate(){
+tempAttachments=[];tempTags=[];tempRelated=[];editDocId=null;
+const pg=document.getElementById('page-create');
+pg.innerHTML=`<div class="page-header"><h1 class="page-title" id="create-title">Новый документ</h1></div>
+<div class="card"><div class="card-body" style="max-width:720px">
+<div class="form-group"><label class="form-label">Название *</label><input type="text" class="form-input" id="docTitle"></div>
+<div class="form-row-4">
+<div class="form-group"><label class="form-label">Тип *</label><select class="form-select" id="docType"><option value="">Тип</option><option value="contract">Договор</option><option value="invoice">Счёт</option><option value="order">Приказ</option><option value="report">Отчёт</option><option value="memo">Записка</option><option value="statement">Заявление</option><option value="other">Прочее</option></select></div>
+<div class="form-group"><label class="form-label">Статус</label><select class="form-select" id="docStatus" onchange="toggleApprovers()"><option value="draft">Черновик</option><option value="pending">На согласование</option></select></div>
+<div class="form-group"><label class="form-label">Срок</label><input type="date" class="form-input" id="docDeadline"></div>
+<div class="form-group"><label class="form-label">Приоритет</label><select class="form-select" id="docPriority"><option value="normal">Обычный</option><option value="high">Высокий</option><option value="urgent">Срочный</option></select></div>
+</div>
+<div class="form-group"><label class="form-label">Метки</label><div id="tagSelector"></div></div>
+<div class="form-group"><label class="form-label">Описание</label><textarea class="form-input" id="docDesc" rows="2"></textarea></div>
+<div class="form-group"><label class="form-label">Содержание *</label><textarea class="form-input" id="docContent" rows="10"></textarea></div>
+<div class="form-group"><label class="form-label">Вложения</label><div id="attList"></div><div class="drop-zone" id="dropZone" onclick="document.getElementById('fileInp').click()">&#128206; Перетащите файлы сюда<input type="file" id="fileInp" multiple onchange="handleFiles()" style="display:none"></div></div>
+<div id="approversBlock" style="display:none">
+<div class="form-group"><label class="form-label">Согласующие</label>
+<div style="margin-bottom:8px"><label style="font-size:13px;display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="seqApproval"> Последовательное согласование</label></div>
+<div id="approversList"></div>
+</div></div>
+<div style="display:flex;gap:12px;margin-top:24px"><button class="btn btn-primary" onclick="saveDocument()">Сохранить</button><button class="btn btn-secondary" onclick="showPage('documents')">Отмена</button></div>
+</div></div>`;
+renderTagSelector();renderAttachments();
+const dz=document.getElementById('dropZone');
+dz.addEventListener('dragover',e=>{e.preventDefault();dz.classList.add('dragover')});
+dz.addEventListener('dragleave',()=>dz.classList.remove('dragover'));
+dz.addEventListener('drop',e=>{e.preventDefault();dz.classList.remove('dragover');for(let f of e.dataTransfer.files){tempAttachments.push({name:f.name,size:f.size<1048576?Math.round(f.size/1024)+' КБ':Math.round(f.size/1048576)+' МБ'})}renderAttachments()});
+}
+function handleFiles(){const files=document.getElementById('fileInp').files;for(let f of files){tempAttachments.push({name:f.name,size:f.size<1048576?Math.round(f.size/1024)+' КБ':Math.round(f.size/1048576)+' МБ'})}document.getElementById('fileInp').value='';renderAttachments()}
+function renderAttachments(){const el=document.getElementById('attList');if(!el)return;el.innerHTML=tempAttachments.map((a,i)=>`<div style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:13px">&#128206; ${esc(a.name)} <span style="color:var(--g400)">(${esc(a.size)})</span><button class="btn btn-sm btn-danger btn-icon" onclick="tempAttachments.splice(${i},1);renderAttachments()" style="font-size:10px">&#10005;</button></div>`).join('')}
+function renderTagSelector(){const el=document.getElementById('tagSelector');if(!el)return;el.innerHTML=allTags.map(t=>{const active=tempTags.includes(t.id);return`<span class="tag tag-${esc(t.color)}" style="cursor:pointer;margin:2px;${active?'outline:2px solid var(--primary);outline-offset:1px':''}" onclick="toggleTag(${t.id})">${esc(t.name)}</span>`}).join('')}
+function toggleTag(id){const idx=tempTags.indexOf(id);if(idx>=0)tempTags.splice(idx,1);else tempTags.push(id);renderTagSelector()}
+function toggleApprovers(){const show=document.getElementById('docStatus').value==='pending';document.getElementById('approversBlock').style.display=show?'block':'none';if(show)renderApproversList()}
+function renderApproversList(){const el=document.getElementById('approversList');if(!el)return;el.innerHTML=allUsers.filter(u=>u.id!==CU.id).map(u=>`<label style="display:flex;align-items:center;gap:8px;font-size:14px;cursor:pointer;margin-bottom:6px"><input type="checkbox" value="${u.id}" class="approver-cb"><span class="user-avatar-sm" style="background:${u.color}">${ini(u.name)}</span> ${esc(u.name)} (${esc(u.position||u.role)})</label>`).join('')}
+async function startEdit(id){
+const d=docs.find(x=>x.id===id);if(!d)return;
+showPage('create');
+setTimeout(()=>{
+editDocId=id;
+document.getElementById('create-title').textContent='Редактирование';
+document.getElementById('docTitle').value=d.title;
+document.getElementById('docType').value=d.doc_type;
+document.getElementById('docStatus').value='draft';
+document.getElementById('docDesc').value=d.description;
+document.getElementById('docContent').value=d.content;
+document.getElementById('docDeadline').value=d.deadline||'';
+document.getElementById('docPriority').value=d.priority||'normal';
+tempAttachments=d.attachments.map(a=>({name:a.filename,size:a.size}));
+tempTags=d.tags.map(t=>t.id);
+tempRelated=d.related_doc_ids||[];
+renderAttachments();renderTagSelector();
+},50);
+}
+async function saveDocument(){
+const title=document.getElementById('docTitle').value.trim(),type=document.getElementById('docType').value,status=document.getElementById('docStatus').value,desc=document.getElementById('docDesc').value.trim(),content=document.getElementById('docContent').value.trim(),deadline=document.getElementById('docDeadline').value,priority=document.getElementById('docPriority').value,seq=document.getElementById('seqApproval')?.checked||false;
+if(!title||!type||!content){showToast('Заполните обязательные поля','error');return}
+const approver_ids=[];
+if(status==='pending'){document.querySelectorAll('.approver-cb:checked').forEach(cb=>approver_ids.push(parseInt(cb.value)));if(!approver_ids.length){showToast('Выберите согласующих','error');return}}
+const body={title,description:desc,content,doc_type:type,status,priority,sequential:seq,deadline,approver_ids,tag_ids:tempTags,related_doc_ids:tempRelated,attachments:tempAttachments};
+try{
+if(editDocId){await api('/documents/'+editDocId,{method:'PUT',body:JSON.stringify(body)})}
+else{await api('/documents',{method:'POST',body:JSON.stringify(body)})}
+await loadDocs();showPage('documents');showToast(editDocId?'Документ сохранён':'Документ создан','success');
+}catch(e){showToast(e.message,'error')}
+}
+
+// === DETAIL ===
+function renderDetail(id){
+const d=docs.find(x=>x.id===id),pg=document.getElementById('page-detail');
+if(!d){pg.innerHTML='<div class="empty-state"><div class="empty-icon">&#128269;</div><div class="empty-title">Не найден</div></div>';return}
+const ca=canApprove(d),isA=CU&&d.author_id===CU.id;
+const totalA=d.approvals.length,doneA=d.approvals.filter(a=>a.status==='approved').length,pct=totalA?Math.round(doneA/totalA*100):0;
+pg.innerHTML=`
+<div class="page-header"><div><span class="back-link" onclick="showPage('documents')">&larr; Назад</span><h1 class="page-title" style="margin-top:8px">${esc(d.title)}<span class="doc-number">${esc(d.number)}</span></h1>${d.tags.length?`<div class="tags-wrap" style="margin-top:6px">${renderDocTags(d.tags)}</div>`:''}</div>
+<div style="display:flex;gap:8px;flex-wrap:wrap" class="no-print">
+${d.status==='draft'&&isA?`<button class="btn btn-warning btn-sm" onclick="startEdit(${d.id})">&#9998; Редактировать</button>`:''}
+${d.status==='rejected'&&isA?`<button class="btn btn-primary btn-sm" onclick="resendDoc(${d.id})">&#128257; Повторно</button>`:''}
+${d.status==='pending'&&isA?`<button class="btn btn-warning btn-sm" onclick="recallDoc(${d.id})">&#8617; Отозвать</button>`:''}
+${d.status==='approved'?`<button class="btn btn-secondary btn-sm" onclick="archiveDoc(${d.id})">В архив</button>`:''}
+<button class="btn btn-secondary btn-sm" onclick="copyDoc(${d.id})">&#128203; Копировать</button>
+<button class="btn btn-secondary btn-sm" onclick="window.print()">&#128424; Печать</button>
+</div></div>
+<div class="detail-grid"><div>
+<div class="card" style="margin-bottom:20px"><div class="card-header"><h3>Информация</h3><span class="badge badge-${d.status}">${SL[d.status]}</span></div><div class="card-body"><div class="info-grid">
+<div><span class="info-label">Тип</span><span class="info-value">${TL[d.doc_type]}</span></div>
+<div><span class="info-label">Автор</span><span class="info-value">${esc(d.author_name)}</span></div>
+<div><span class="info-label">Номер</span><span class="info-value">${esc(d.number)}</span></div>
+<div><span class="info-label">Приоритет</span><span class="info-value">${d.priority==='high'?'&#9733; Высокий':d.priority==='urgent'?'&#9733;&#9733; Срочный':'Обычный'}</span></div>
+<div><span class="info-label">Создан</span><span class="info-value">${fd(d.created_at)}</span></div>
+<div><span class="info-label">Обновлён</span><span class="info-value">${fd(d.updated_at)}</span></div>
+${d.deadline?`<div><span class="info-label">Срок</span><span class="info-value">${dlText(d.deadline)}</span></div>`:''}
+</div>
+${d.description?`<div style="margin-top:16px"><span class="info-label">Описание</span><p style="margin-top:4px">${esc(d.description)}</p></div>`:''}
+${d.attachments.length?`<div style="margin-top:16px"><span class="info-label">Вложения</span>${d.attachments.map(a=>`<div style="margin-top:6px;font-size:13px">&#128206; ${esc(a.filename)} <span style="color:var(--g400)">(${esc(a.size)})</span></div>`).join('')}</div>`:''}
+</div></div>
+<div class="card" style="margin-bottom:20px"><div class="card-header"><h3>Содержание</h3></div><div class="card-body"><div class="doc-content">${esc(d.content)}</div></div></div>
+<div class="card" style="margin-bottom:20px"><div class="card-header"><h3>Комментарии (${d.comments.length})</h3></div><div class="card-body">
+${d.comments.map(c=>`<div class="comment"><div class="comment-header"><strong>${esc(c.user_name)}</strong><span class="comment-date">${fdt(c.created_at)}</span></div><p style="font-size:14px">${esc(c.text)}</p></div>`).join('')||'<p style="color:var(--g400);text-align:center">Нет комментариев</p>'}
+<div style="margin-top:16px" class="no-print"><textarea class="form-input" id="newComment" placeholder="Комментарий..." rows="2"></textarea><button class="btn btn-primary btn-sm" style="margin-top:8px" onclick="addComment(${d.id})">Отправить</button></div>
+</div></div>
+</div><div>
+${totalA?`<div class="card" style="margin-bottom:20px"><div class="card-header"><h3>Согласование${d.sequential?' (послед.)':''}</h3></div><div class="card-body">
+<div class="progress-bar"><div class="progress-fill" style="width:${pct}%"></div></div>
+<div class="progress-text">${doneA} из ${totalA} (${pct}%)</div>
+${d.approvals.map(a=>`<div class="approver-item"><div class="approver-status">${a.status==='approved'?'<span style="color:var(--success)">&#10004;</span>':a.status==='rejected'?'<span style="color:var(--danger)">&#10006;</span>':'<span style="color:var(--g300)">&#9203;</span>'}</div><div style="flex:1"><div class="approver-name">${esc(a.user_name)}</div>${a.decided_at?`<div class="approver-date">${fdt(a.decided_at)}</div>`:''}${a.comment?`<div class="approver-comment">${esc(a.comment)}</div>`:''}${a.signature?`<div class="sig-box signed"><div class="sig-stamp">&#128274; ЭЦП</div><div class="sig-hash">${esc(a.signature)}</div></div>`:''}</div></div>`).join('')}
+${ca?`<div style="margin-top:16px;border-top:1px solid var(--border);padding-top:16px" class="no-print">
+<textarea class="form-input" id="approvalComment" placeholder="Комментарий" rows="2" style="margin-bottom:8px"></textarea>
+<div style="display:flex;gap:8px"><button class="btn btn-success btn-sm" onclick="approveDoc(${d.id})">&#128274; Подписать</button><button class="btn btn-danger btn-sm" onclick="rejectDoc(${d.id})">Отклонить</button></div></div>`:''}</div></div>`:''}
+<div class="card"><div class="card-header"><h3>История</h3></div><div class="card-body">
+${(d.history||[]).map(h=>`<div class="history-item"><div class="history-dot"></div><div style="flex:1"><div class="history-text">${esc(h.text)}</div><div class="history-date">${esc(h.user_name)} &middot; ${fdt(h.created_at)}</div></div></div>`).join('')||'<p style="color:var(--g400)">Нет</p>'}
+</div></div></div></div>`;
+}
+
+// === DOCUMENT ACTIONS ===
+async function addComment(id){const el=document.getElementById('newComment'),t=el.value.trim();if(!t)return;try{await api(`/documents/${id}/comments`,{method:'POST',body:JSON.stringify({text:t})});await loadDocs();renderDetail(id);showToast('Комментарий добавлен','success')}catch(e){showToast(e.message,'error')}}
+async function approveDoc(id){const cm=document.getElementById('approvalComment')?.value||'';try{await api(`/documents/${id}/approve`,{method:'POST',body:JSON.stringify({comment:cm})});await loadDocs();await loadNotifs();renderDetail(id);showToast('Документ подписан','success')}catch(e){showToast(e.message,'error')}}
+async function rejectDoc(id){const cm=document.getElementById('approvalComment')?.value?.trim();if(!cm){showToast('Укажите причину отклонения','error');return}try{await api(`/documents/${id}/reject`,{method:'POST',body:JSON.stringify({comment:cm})});await loadDocs();await loadNotifs();renderDetail(id);showToast('Документ отклонён','warning')}catch(e){showToast(e.message,'error')}}
+async function recallDoc(id){if(!confirm('Отозвать документ?'))return;try{await api(`/documents/${id}/recall`,{method:'POST'});await loadDocs();showPage('documents');showToast('Документ отозван','warning')}catch(e){showToast(e.message,'error')}}
+async function resendDoc(id){try{await api(`/documents/${id}/resend`,{method:'POST'});await loadDocs();showPage('documents');showToast('Отправлен повторно','info')}catch(e){showToast(e.message,'error')}}
+async function archiveDoc(id){try{await api(`/documents/${id}/archive`,{method:'POST'});await loadDocs();renderDetail(id);showToast('В архиве','info')}catch(e){showToast(e.message,'error')}}
+async function copyDoc(id){try{await api(`/documents/${id}/copy`,{method:'POST'});await loadDocs();showPage('documents');showToast('Документ скопирован','success')}catch(e){showToast(e.message,'error')}}
+async function delDoc(id){if(!confirm('Удалить документ?'))return;try{await api(`/documents/${id}`,{method:'DELETE'});await loadDocs();showPage('documents');showToast('Удалён','warning')}catch(e){showToast(e.message,'error')}}
+
+// === APPROVAL PAGE ===
+function renderApproval(){
+const p=docs.filter(d=>canApprove(d)),pg=document.getElementById('page-approval');
+pg.innerHTML=`<div class="page-header"><h1 class="page-title">Согласование</h1></div>`;
+if(!p.length){pg.innerHTML+='<div class="card"><div class="empty-state"><div class="empty-icon">&#10004;</div><div class="empty-title">Нет документов</div></div></div>';return}
+pg.innerHTML+='<div class="approval-cards">'+p.map(d=>{
+const totalA=d.approvals.length,doneA=d.approvals.filter(a=>a.status==='approved').length,pct=totalA?Math.round(doneA/totalA*100):0;
+return`<div class="card"><div class="card-body"><h3>${esc(d.title)}<span class="doc-number">${esc(d.number)}</span></h3><p style="font-size:13px;color:var(--g500);margin-top:4px">${esc(d.description)}</p>${d.tags.length?`<div class="tags-wrap" style="margin-top:6px">${renderDocTags(d.tags)}</div>`:''}
+<div class="progress-bar" style="margin-top:12px"><div class="progress-fill" style="width:${pct}%"></div></div>
+<div style="display:flex;gap:24px;margin-top:12px;font-size:13px;color:var(--g500)"><span>Автор: ${esc(d.author_name)}</span><span>${TL[d.doc_type]}</span>${d.deadline?`<span>${dlText(d.deadline)}</span>`:''}</div>
+<div style="display:flex;gap:8px;margin-top:16px"><button class="btn btn-sm btn-secondary" onclick="showPage('detail',${d.id})">Открыть</button><button class="btn btn-sm btn-success" onclick="quickApprove(${d.id})">&#128274; Подписать</button><button class="btn btn-sm btn-danger" onclick="quickReject(${d.id})">Отклонить</button></div></div></div>`}).join('')+'</div>';
+}
+async function quickApprove(id){try{await api(`/documents/${id}/approve`,{method:'POST',body:JSON.stringify({comment:''})});await loadDocs();await loadNotifs();showPage('approval');showToast('Подписан','success')}catch(e){showToast(e.message,'error')}}
+async function quickReject(id){const r=prompt('Причина отклонения:');if(!r)return;try{await api(`/documents/${id}/reject`,{method:'POST',body:JSON.stringify({comment:r})});await loadDocs();await loadNotifs();showPage('approval');showToast('Отклонён','warning')}catch(e){showToast(e.message,'error')}}
+
+// === KANBAN ===
+function renderKanban(){
+const cols={draft:{title:'Черновик',color:'var(--g400)'},pending:{title:'На согласовании',color:'var(--warning)'},approved:{title:'Согласован',color:'var(--success)'},rejected:{title:'Отклонён',color:'var(--danger)'},archived:{title:'Архив',color:'var(--info)'}};
+document.getElementById('page-kanban').innerHTML=`<div class="page-header"><h1 class="page-title">Канбан-доска</h1></div><div class="kanban">${Object.entries(cols).map(([st,cfg])=>{const dd=docs.filter(d=>d.status===st);return`<div class="kanban-col"><div class="kanban-col-title"><span style="color:${cfg.color}">&#9679;</span> ${cfg.title} (${dd.length})</div>${dd.map(d=>`<div class="kanban-card" onclick="showPage('detail',${d.id})"><div class="kanban-card-title">${esc(d.title)}</div><div class="kanban-card-meta">${TL[d.doc_type]} &middot; ${esc(d.author_name)}${d.deadline?'<br>'+dlText(d.deadline):''}</div></div>`).join('')}</div>`}).join('')}</div>`;
+}
+
+// === CALENDAR ===
+function renderCalendar(){
+const months=['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
+const days=['Пн','Вт','Ср','Чт','Пт','Сб','Вс'];
+const first=new Date(calYear,calMonth,1),last=new Date(calYear,calMonth+1,0);
+let startDay=first.getDay()||7;startDay--;
+const today=new Date();today.setHours(0,0,0,0);
+let html=`<div class="page-header"><h1 class="page-title">Календарь сроков</h1></div><div class="cal-nav"><button class="btn btn-sm btn-secondary" onclick="calMonth--;if(calMonth<0){calMonth=11;calYear--}renderCalendar()">&larr;</button><h3>${months[calMonth]} ${calYear}</h3><button class="btn btn-sm btn-secondary" onclick="calMonth++;if(calMonth>11){calMonth=0;calYear++}renderCalendar()">&rarr;</button></div><div class="cal-grid">`;
+days.forEach(d=>html+=`<div class="cal-header">${d}</div>`);
+const prevLast=new Date(calYear,calMonth,0).getDate();
+for(let i=startDay-1;i>=0;i--)html+=`<div class="cal-day other-month"><div class="cal-date">${prevLast-i}</div></div>`;
+for(let d=1;d<=last.getDate();d++){const dt=new Date(calYear,calMonth,d);dt.setHours(0,0,0,0);const isToday=dt.getTime()===today.getTime();
+const evts=docs.filter(doc=>{if(!doc.deadline)return false;const dl=new Date(doc.deadline);return dl.getFullYear()===calYear&&dl.getMonth()===calMonth&&dl.getDate()===d});
+html+=`<div class="cal-day${isToday?' today':''}"><div class="cal-date">${d}</div>${evts.map(e=>`<div class="cal-event" style="background:${e.status==='approved'?'var(--success-light)':'var(--warning-light)'};color:${e.status==='approved'?'var(--success)':'var(--warning)'}" onclick="showPage('detail',${e.id})" title="${esc(e.title)}">${esc(e.title.slice(0,12))}</div>`).join('')}</div>`}
+const rem=(startDay+last.getDate())%7;if(rem)for(let i=1;i<=7-rem;i++)html+=`<div class="cal-day other-month"><div class="cal-date">${i}</div></div>`;
+html+='</div>';document.getElementById('page-calendar').innerHTML=html;
+}
+
+// === ANALYTICS ===
+function renderAnalytics(){
+const approved=docs.filter(d=>d.status==='approved'||d.status==='archived');
+let avgTime=0;
+if(approved.length){const times=approved.map(d=>{const created=new Date(d.created_at);const lastA=d.approvals.filter(a=>a.decided_at).map(a=>new Date(a.decided_at));if(!lastA.length)return 0;return(Math.max(...lastA)-created)/36e5});avgTime=times.reduce((a,b)=>a+b,0)/times.length}
+const overdue=docs.filter(d=>d.status==='pending'&&d.deadline&&dlClass(d.deadline)==='deadline-overdue');
+const byMonth={};docs.forEach(d=>{const m=d.created_at.slice(0,7);byMonth[m]=(byMonth[m]||0)+1});
+const me=Object.entries(byMonth).sort();const maxM=Math.max(...me.map(e=>e[1]),1);
+document.getElementById('page-analytics').innerHTML=`<div class="page-header"><h1 class="page-title">Аналитика</h1></div>
+<div class="analytics-grid">
+<div class="card metric-card"><div class="metric-value">${avgTime?avgTime.toFixed(1):'—'}</div><div class="metric-label">Среднее время согласования (часов)</div></div>
+<div class="card metric-card"><div class="metric-value">${docs.length}</div><div class="metric-label">Всего документов</div></div>
+<div class="card metric-card"><div class="metric-value" style="color:var(--danger)">${overdue.length}</div><div class="metric-label">Просрочено</div></div>
+</div>
+<div class="card" style="margin-bottom:24px"><div class="card-header"><h3>По месяцам</h3></div><div class="card-body"><div class="bar-chart">${me.map(([m,c])=>`<div class="bar-wrap"><div class="bar-value">${c}</div><div class="bar" style="height:${c/maxM*120}px;background:var(--primary)"></div><div class="bar-label">${m}</div></div>`).join('')||'Нет данных'}</div></div></div>
+${overdue.length?`<div class="card"><div class="card-header"><h3 style="color:var(--danger)">Просроченные</h3></div><div class="card-body"><div class="table-wrapper"><table><thead><tr><th>Документ</th><th>Автор</th><th>Срок</th></tr></thead><tbody>${overdue.map(d=>`<tr class="clickable" onclick="showPage('detail',${d.id})"><td class="link">${esc(d.title)}</td><td>${esc(d.author_name)}</td><td>${dlText(d.deadline)}</td></tr>`).join('')}</tbody></table></div></div></div>`:''}`;
+}
+
+// === ARCHIVE ===
+function renderArchive(){
+const a=docs.filter(d=>d.status==='archived'),pg=document.getElementById('page-archive');
+pg.innerHTML=`<div class="page-header"><h1 class="page-title">Архив</h1></div>`;
+if(!a.length){pg.innerHTML+='<div class="card"><div class="empty-state"><div class="empty-icon">&#128451;</div><div class="empty-title">Пусто</div></div></div>';return}
+pg.innerHTML+=`<div class="card"><div class="table-wrapper"><table><thead><tr><th>№</th><th>Название</th><th>Тип</th><th>Автор</th><th></th></tr></thead><tbody>${a.map(d=>`<tr><td style="font-size:12px">${esc(d.number)}</td><td><span class="link" onclick="showPage('detail',${d.id})">${esc(d.title)}</span></td><td>${TL[d.doc_type]}</td><td>${esc(d.author_name)}</td><td><button class="btn btn-sm btn-secondary" onclick="showPage('detail',${d.id})">&#128065;</button></td></tr>`).join('')}</tbody></table></div></div>`;
+}
+
+// === NOTIFICATIONS ===
+async function renderNotifs(){
+await loadNotifs();
+const pg=document.getElementById('page-notifications');
+pg.innerHTML=`<div class="page-header"><h1 class="page-title">Уведомления</h1><button class="btn btn-sm btn-secondary" onclick="markAllRead()">Прочитать все</button></div>`;
+if(!notifs.length){pg.innerHTML+='<div class="card"><div class="empty-state"><div class="empty-icon">&#128276;</div><div class="empty-title">Нет уведомлений</div></div></div>';return}
+const im={approval_request:{i:'&#9203;',b:'var(--warning-light)'},approved:{i:'&#10004;',b:'var(--success-light)'},rejected:{i:'&#10006;',b:'var(--danger-light)'},comment:{i:'&#128172;',b:'var(--primary-light)'}};
+pg.innerHTML+=`<div class="card">${notifs.map(n=>{const ic=im[n.notif_type]||im.comment;return`<div class="notif-item ${n.read?'':'unread'}" onclick="readNotif(${n.id},${n.doc_id})"><div class="notif-icon" style="background:${ic.b}">${ic.i}</div><div class="notif-content"><div class="notif-title">${esc(n.title)}</div><div class="notif-msg">${esc(n.message)}</div><div class="notif-time">${fdt(n.created_at)}</div></div></div>`}).join('')}</div>`;
+}
+async function readNotif(nid,did){try{await api(`/notifications/${nid}/read`,{method:'POST'});await loadNotifs();if(did)showPage('detail',did)}catch(e){}}
+async function markAllRead(){try{await api('/notifications/read-all',{method:'POST'});await loadNotifs();renderNotifs();showToast('Все прочитаны','info')}catch(e){}}
+
+// === USERS ===
+function renderUsers(){
+const depts={};allUsers.forEach(u=>{const d=u.department||'Без отдела';if(!depts[d])depts[d]=[];depts[d].push(u)});
+document.getElementById('page-users').innerHTML=`<div class="page-header"><h1 class="page-title">Сотрудники</h1><button class="btn btn-primary" onclick="document.getElementById('userModal').classList.remove('hidden')">+ Добавить</button></div>`+
+Object.entries(depts).map(([dept,list])=>`<div class="card dept-card"><div class="dept-header" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'block':'none'">${esc(dept)} <span style="font-size:12px;color:var(--g400);font-weight:400">${list.length} чел.</span></div><div><div class="table-wrapper"><table><thead><tr><th>Имя</th><th>Email</th><th>Должность</th><th>Роль</th></tr></thead><tbody>${list.map(u=>`<tr><td><div style="display:flex;align-items:center;gap:10px"><div class="user-avatar-sm" style="background:${u.color}">${ini(u.name)}</div><strong>${esc(u.name)}</strong></div></td><td>${esc(u.email)}</td><td>${esc(u.position)}</td><td><span class="badge ${u.role==='admin'?'badge-rejected':u.role==='manager'?'badge-pending':'badge-draft'}">${RL[u.role]||u.role}</span></td></tr>`).join('')}</tbody></table></div></div></div>`).join('');
+}
+async function addUser(){
+const n=document.getElementById('newUserName').value.trim(),e=document.getElementById('newUserEmail').value.trim(),p=document.getElementById('newUserPass').value||'123456',d=document.getElementById('newUserDept').value.trim(),pos=document.getElementById('newUserPos').value.trim(),r=document.getElementById('newUserRole').value;
+if(!n||!e){showToast('Заполните ФИО и Email','error');return}
+try{await api('/users',{method:'POST',body:JSON.stringify({name:n,email:e,password:p,role:r,department:d,position:pos})});allUsers=await api('/users');document.getElementById('userModal').classList.add('hidden');renderUsers();showToast('Сотрудник добавлен','success')}catch(e){showToast(e.message,'error')}
+}
+
+// === SETTINGS ===
+async function renderSettings(){
+let routes=[];try{routes=await api('/routes')}catch(e){}
+document.getElementById('page-settings').innerHTML=`<div class="page-header"><h1 class="page-title">Настройки</h1></div><div class="settings-grid">
+<div class="card"><div class="card-header"><h3>Маршруты согласования</h3></div><div class="card-body">
+${routes.map(r=>{const uids=(r.user_ids||'').split(',').filter(Boolean);const names=uids.map(uid=>{const u=allUsers.find(x=>x.id===parseInt(uid));return u?u.name:uid}).join(' → ');
+return`<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border)"><div><strong>${esc(r.name)}</strong><div style="font-size:12px;color:var(--g400)">${esc(names)}${r.sequential?' (последовательно)':''}</div></div><button class="btn btn-sm btn-danger" onclick="delRoute(${r.id})">&#128465;</button></div>`}).join('')||'<p style="color:var(--g400)">Нет маршрутов</p>'}
+<div style="margin-top:16px"><div class="form-group"><label class="form-label">Название</label><input type="text" class="form-input" id="newRouteName" placeholder="Название маршрута"></div>
+<div class="form-group"><label class="form-label">Сотрудники</label><div id="routeUsers">${allUsers.map(u=>`<label style="display:inline-flex;align-items:center;gap:4px;margin-right:12px;font-size:13px"><input type="checkbox" value="${u.id}" class="route-cb"> ${esc(u.name)}</label>`).join('')}</div></div>
+<button class="btn btn-sm btn-primary" onclick="addRoute()">Добавить маршрут</button></div>
+</div></div></div>`;
+}
+async function addRoute(){const name=document.getElementById('newRouteName').value.trim();if(!name){showToast('Введите название','error');return}const uids=[];document.querySelectorAll('.route-cb:checked').forEach(cb=>uids.push(parseInt(cb.value)));if(!uids.length){showToast('Выберите сотрудников','error');return}try{await api('/routes',{method:'POST',body:JSON.stringify({name,user_ids:uids,sequential:uids.length>1})});renderSettings();showToast('Маршрут добавлен','success')}catch(e){showToast(e.message,'error')}}
+async function delRoute(id){try{await api('/routes/'+id,{method:'DELETE'});renderSettings()}catch(e){}}
+
+// === INIT ===
+(async function(){
+const t=localStorage.getItem('edo-theme');if(t)document.documentElement.setAttribute('data-theme',t);
+if(TOKEN){try{await enterApp()}catch(e){doLogout()}}
+else{document.getElementById('authPage').style.display='flex'}
+})();
+</script>
+</body>
+</html>
