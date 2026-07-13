@@ -77,12 +77,11 @@ def run_migrations(eng):
                     conn.execute(text(f'ALTER TABLE {table} ADD COLUMN {col} {col_type}'))
                 elif col == "extra_fields" and is_pg:
                     # Fix: convert TEXT to JSONB if it was added as TEXT previously
-                    try:
+                    col_info = next((c for c in insp.get_columns(table) if c["name"] == col), None)
+                    if col_info and "TEXT" in str(col_info["type"]).upper():
                         conn.execute(text(
                             "ALTER TABLE documents ALTER COLUMN extra_fields TYPE JSONB USING extra_fields::jsonb"
                         ))
-                    except Exception:
-                        pass
         conn.commit()
 
 
