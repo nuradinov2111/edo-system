@@ -68,6 +68,8 @@ def startup():
          "role": "user", "department": "Управление", "position": "Менеджер проектов", "color": "#16a34a"},
         {"login": "usredo", "name": "Сотрудник Петров", "email": "user@edo.com", "password": "user123",
          "role": "user", "department": "Отдел разработки", "position": "Специалист", "color": "#7c3aed"},
+        {"login": "buhgal", "name": "Бухгалтер Смирнова", "email": "buh@edo.com", "password": "buh123",
+         "role": "user", "department": "Бухгалтерия", "position": "Главный бухгалтер", "color": "#ea580c"},
     ]
     for u in demo_users:
         existing = db.query(User).filter(User.email == u["email"]).first()
