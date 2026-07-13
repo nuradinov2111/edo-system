@@ -10,7 +10,7 @@ from models import (
     History, Version, Attachment, ApprovalRoute, doc_tags, doc_related, Task,
 )
 from schemas import (
-    UserRegister, UserLogin, UserOut, Token, UserCreate,
+    UserRegister, UserLogin, UserOut, Token, UserCreate, DeputySet,
     DocumentCreate, DocumentOut, ApprovalOut, CommentOut, CommentCreate,
     ApprovalAction, NotificationOut, RouteCreate, RouteOut, TagOut,
     TaskCreate, TaskUpdate, TaskOut,
@@ -95,6 +95,25 @@ def create_user(data: UserCreate, db: Session = Depends(get_db), user: User = De
     db.commit()
     db.refresh(new_user)
     return UserOut.model_validate(new_user)
+
+
+@app.put("/api/users/{user_id}/deputy", response_model=UserOut)
+def set_deputy(user_id: int, data: DeputySet, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    if user.id != user_id and user.role != "admin":
+        raise HTTPException(403, "Нет прав")
+    target = db.query(User).filter(User.id == user_id).first()
+    if not target:
+        raise HTTPException(404, "Пользователь не найден")
+    if data.deputy_id:
+        dep = db.query(User).filter(User.id == data.deputy_id).first()
+        if not dep:
+            raise HTTPException(404, "Заместитель не найден")
+        if data.deputy_id == user_id:
+            raise HTTPException(400, "Нельзя назначить себя заместителем")
+    target.deputy_id = data.deputy_id
+    db.commit()
+    db.refresh(target)
+    return UserOut.model_validate(target)
 
 
 # ============ TAGS ============
@@ -337,33 +356,64 @@ def permanent_delete(doc_id: int, db: Session = Depends(get_db), user: User = De
 
 # ============ APPROVAL ACTIONS ============
 
+def find_approval_for_user(doc, user, db):
+    """Find pending approval for user (direct or as deputy)."""
+    sorted_approvals = sorted(doc.approvals, key=lambda x: x.order_num)
+    # Direct match
+    for a in sorted_approvals:
+        if a.user_id == user.id and a.status == "pending":
+            if doc.sequential:
+                for prev in sorted_approvals:
+                    if prev.order_num < a.order_num and prev.status != "approved":
+                        return None, "Дождитесь предыдущего согласующего"
+            return a, None
+    # Deputy match
+    for a in sorted_approvals:
+        if a.status == "pending":
+            approver = db.query(User).filter(User.id == a.user_id).first()
+            if approver and approver.deputy_id == user.id:
+                if doc.sequential:
+                    for prev in sorted_approvals:
+                        if prev.order_num < a.order_num and prev.status != "approved":
+                            return None, "Дождитесь предыдущего согласующего"
+                return a, None
+    return None, None
+
+
 @app.post("/api/documents/{doc_id}/approve", response_model=DocumentOut)
 def approve_document(doc_id: int, data: ApprovalAction, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     doc = load_doc(db, doc_id)
     if doc.status != "pending":
         raise HTTPException(400, "Документ не на согласовании")
 
-    approval = None
-    for a in sorted(doc.approvals, key=lambda x: x.order_num):
-        if a.user_id == user.id and a.status == "pending":
-            if doc.sequential:
-                for prev in sorted(doc.approvals, key=lambda x: x.order_num):
-                    if prev.order_num < a.order_num and prev.status != "approved":
-                        raise HTTPException(400, "Дождитесь предыдущего согласующего")
-            approval = a
-            break
-
+    approval, err = find_approval_for_user(doc, user, db)
+    if err:
+        raise HTTPException(400, err)
     if not approval:
         raise HTTPException(400, "Вы не можете согласовать этот документ")
 
+    is_deputy = approval.user_id != user.id
     approval.status = "approved"
     approval.comment = data.comment
     approval.signature = secrets.token_hex(32)
     approval.decided_at = datetime.now(timezone.utc)
 
-    add_history(db, doc, user.name, f"ЭЦП: {user.name}")
+    if is_deputy:
+        approver = db.query(User).filter(User.id == approval.user_id).first()
+        add_history(db, doc, user.name, f"ЭЦП (заместитель {approver.name}): {user.name}")
+    else:
+        add_history(db, doc, user.name, f"ЭЦП: {user.name}")
 
     db.flush()
+
+    # Notify next approver in sequential mode
+    if doc.sequential:
+        sorted_approvals = sorted(doc.approvals, key=lambda x: x.order_num)
+        for next_a in sorted_approvals:
+            if next_a.status == "pending":
+                add_notification(db, next_a.user_id, "approval_request", "Ваша очередь", f'Согласуйте "{doc.title}"', doc.id)
+                break
+
     all_approved = all(a.status == "approved" for a in doc.approvals)
     if all_approved:
         doc.status = "approved"
@@ -381,18 +431,16 @@ def reject_document(doc_id: int, data: ApprovalAction, db: Session = Depends(get
     if doc.status != "pending":
         raise HTTPException(400, "Документ не на согласовании")
 
-    approval = None
-    for a in doc.approvals:
-        if a.user_id == user.id and a.status == "pending":
-            approval = a
-            break
-
+    approval, err = find_approval_for_user(doc, user, db)
+    if err:
+        raise HTTPException(400, err)
     if not approval:
         raise HTTPException(400, "Вы не можете отклонить этот документ")
 
     if not data.comment:
         raise HTTPException(400, "Укажите причину отклонения")
 
+    is_deputy = approval.user_id != user.id
     approval.status = "rejected"
     approval.comment = data.comment
     approval.decided_at = datetime.now(timezone.utc)
@@ -400,7 +448,11 @@ def reject_document(doc_id: int, data: ApprovalAction, db: Session = Depends(get
     doc.status = "rejected"
     doc.updated_at = datetime.now(timezone.utc)
 
-    add_history(db, doc, user.name, f"Отклонён: {user.name} — {data.comment}")
+    if is_deputy:
+        approver = db.query(User).filter(User.id == approval.user_id).first()
+        add_history(db, doc, user.name, f"Отклонён (заместитель {approver.name}): {user.name} — {data.comment}")
+    else:
+        add_history(db, doc, user.name, f"Отклонён: {user.name} — {data.comment}")
     add_notification(db, doc.author_id, "rejected", "Отклонён", f'{user.name} отклонил "{doc.title}"', doc.id)
 
     db.commit()
@@ -479,11 +531,7 @@ def delegate_approval(doc_id: int, to_user_id: int, db: Session = Depends(get_db
     to_user = db.query(User).filter(User.id == to_user_id).first()
     if not to_user:
         raise HTTPException(404, "Пользователь не найден")
-    approval = None
-    for a in doc.approvals:
-        if a.user_id == user.id and a.status == "pending":
-            approval = a
-            break
+    approval, _ = find_approval_for_user(doc, user, db)
     if not approval:
         raise HTTPException(400, "Нет активного согласования")
     approval.user_id = to_user_id

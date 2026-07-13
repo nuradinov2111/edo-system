@@ -23,6 +23,7 @@ class UserOut(BaseModel):
     department: str
     position: str
     color: str
+    deputy_id: Optional[int] = None
     model_config = {"from_attributes": True}
 
 class Token(BaseModel):
@@ -167,6 +168,11 @@ class UserCreate(BaseModel):
     role: str = "user"
     department: str = ""
     position: str = ""
+    deputy_id: Optional[int] = None
+
+
+class DeputySet(BaseModel):
+    deputy_id: Optional[int] = None
 
 
 # --- Task (поручение) ---
