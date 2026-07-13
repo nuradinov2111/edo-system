@@ -87,6 +87,10 @@ def startup():
             existing.color = u["color"]
             existing.password_hash = hash_password(u["password"])
     db.commit()
+
+    # Удалить старых тестовых пользователей без логина
+    db.query(User).filter(User.login == None).delete()
+    db.commit()
     db.close()
 
 
