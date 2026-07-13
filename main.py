@@ -26,8 +26,31 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 app = FastAPI(title="ЭДО API")
 
 # --- Startup ---
+def run_migrations(eng):
+    """Add missing columns/tables to existing DB without dropping data."""
+    from sqlalchemy import text, inspect
+    insp = inspect(eng)
+    existing_tables = insp.get_table_names()
+    with eng.connect() as conn:
+        # Add missing columns to existing tables
+        migrations = [
+            ("documents", "extra_fields", "TEXT DEFAULT '{}'"),
+            ("documents", "deleted", "BOOLEAN DEFAULT FALSE"),
+            ("users", "deputy_id", "INTEGER"),
+            ("attachments", "filepath", "VARCHAR(1000) DEFAULT ''"),
+            ("attachments", "filesize", "INTEGER DEFAULT 0"),
+        ]
+        for table, col, col_type in migrations:
+            if table in existing_tables:
+                cols = [c["name"] for c in insp.get_columns(table)]
+                if col not in cols:
+                    conn.execute(text(f'ALTER TABLE {table} ADD COLUMN {col} {col_type}'))
+        conn.commit()
+
+
 @app.on_event("startup")
 def startup():
+    run_migrations(engine)
     Base.metadata.create_all(bind=engine)
     db = next(get_db())
     if db.query(Tag).count() == 0:
