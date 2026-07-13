@@ -5,18 +5,19 @@ from typing import Optional, Any
 
 # --- Auth ---
 class UserRegister(BaseModel):
+    login: str
     name: str
-    email: EmailStr
     password: str
     department: str = ""
     position: str = ""
 
 class UserLogin(BaseModel):
-    email: EmailStr
+    login: str
     password: str
 
 class UserOut(BaseModel):
     id: int
+    login: str = ""
     name: str
     email: str
     role: str
@@ -162,8 +163,8 @@ class RouteOut(BaseModel):
 
 # --- User management ---
 class UserCreate(BaseModel):
+    login: str
     name: str
-    email: EmailStr
     password: str = "123456"
     role: str = "user"
     department: str = ""

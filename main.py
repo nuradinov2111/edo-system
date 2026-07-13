@@ -37,6 +37,7 @@ def run_migrations(eng):
             ("documents", "extra_fields", "TEXT DEFAULT '{}'"),
             ("documents", "deleted", "BOOLEAN DEFAULT FALSE"),
             ("users", "deputy_id", "INTEGER"),
+            ("users", "login", "VARCHAR(20)"),
             ("attachments", "filepath", "VARCHAR(1000) DEFAULT ''"),
             ("attachments", "filesize", "INTEGER DEFAULT 0"),
         ]
@@ -61,23 +62,24 @@ def startup():
 
     # Seed 3 demo users
     demo_users = [
-        {"name": "Администратор", "email": "admin@edo.com", "password": "admin123",
+        {"login": "admedo", "name": "Администратор", "email": "admin@edo.com", "password": "admin123",
          "role": "admin", "department": "Руководство", "position": "Системный администратор", "color": "#2563eb"},
-        {"name": "Менеджер Иванов", "email": "manager@edo.com", "password": "manager123",
+        {"login": "manger", "name": "Менеджер Иванов", "email": "manager@edo.com", "password": "manager123",
          "role": "user", "department": "Управление", "position": "Менеджер проектов", "color": "#16a34a"},
-        {"name": "Сотрудник Петров", "email": "user@edo.com", "password": "user123",
+        {"login": "usredo", "name": "Сотрудник Петров", "email": "user@edo.com", "password": "user123",
          "role": "user", "department": "Отдел разработки", "position": "Специалист", "color": "#7c3aed"},
     ]
     for u in demo_users:
         existing = db.query(User).filter(User.email == u["email"]).first()
         if not existing:
             db.add(User(
-                name=u["name"], email=u["email"],
+                login=u["login"], name=u["name"], email=u["email"],
                 password_hash=hash_password(u["password"]),
                 role=u["role"], department=u["department"],
                 position=u["position"], color=u["color"],
             ))
         else:
+            existing.login = u["login"]
             existing.name = u["name"]
             existing.role = u["role"]
             existing.department = u["department"]
@@ -92,11 +94,14 @@ def startup():
 
 @app.post("/api/register", response_model=Token)
 def register(data: UserRegister, db: Session = Depends(get_db)):
-    if db.query(User).filter(User.email == data.email).first():
-        raise HTTPException(400, "Email уже зарегистрирован")
+    login_val = data.login.strip().lower()
+    if not login_val.isalpha() or len(login_val) != 6:
+        raise HTTPException(400, "Логин должен состоять из 6 английских букв")
+    if db.query(User).filter(User.login == login_val).first():
+        raise HTTPException(400, "Логин уже занят")
     colors = ["#2563eb","#16a34a","#d97706","#7c3aed","#db2777","#059669","#ea580c","#4f46e5"]
     user = User(
-        name=data.name, email=data.email,
+        login=login_val, name=data.name, email=f"{login_val}@edo.local",
         password_hash=hash_password(data.password),
         department=data.department, position=data.position,
         color=colors[db.query(User).count() % len(colors)],
@@ -110,9 +115,10 @@ def register(data: UserRegister, db: Session = Depends(get_db)):
 
 @app.post("/api/login", response_model=Token)
 def login(data: UserLogin, db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.email == data.email).first()
+    login_val = data.login.strip().lower()
+    user = db.query(User).filter(User.login == login_val).first()
     if not user or not verify_password(data.password, user.password_hash):
-        raise HTTPException(401, "Неверный email или пароль")
+        raise HTTPException(401, "Неверный логин или пароль")
     token = create_token(user.id)
     return Token(access_token=token, user=UserOut.model_validate(user))
 
@@ -133,11 +139,14 @@ def list_users(db: Session = Depends(get_db), user: User = Depends(get_current_u
 def create_user(data: UserCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     if user.role != "admin":
         raise HTTPException(403, "Только админ может добавлять сотрудников")
-    if db.query(User).filter(User.email == data.email).first():
-        raise HTTPException(400, "Email уже существует")
+    login_val = data.login.strip().lower()
+    if not login_val.isalpha() or len(login_val) != 6:
+        raise HTTPException(400, "Логин должен состоять из 6 английских букв")
+    if db.query(User).filter(User.login == login_val).first():
+        raise HTTPException(400, "Логин уже занят")
     colors = ["#2563eb","#16a34a","#d97706","#7c3aed","#db2777","#059669","#ea580c"]
     new_user = User(
-        name=data.name, email=data.email,
+        login=login_val, name=data.name, email=f"{login_val}@edo.local",
         password_hash=hash_password(data.password),
         role=data.role, department=data.department, position=data.position,
         color=colors[db.query(User).count() % len(colors)],
