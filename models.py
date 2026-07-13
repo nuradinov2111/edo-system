@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, Boolean, DateTime, ForeignKey, Table
+from sqlalchemy import Column, Integer, String, Text, Boolean, DateTime, ForeignKey, Table, JSON
 from sqlalchemy.orm import relationship
 from datetime import datetime, timezone
 from database import Base
@@ -29,9 +29,11 @@ class User(Base):
     department = Column(String(200), default="")
     position = Column(String(200), default="")
     color = Column(String(20), default="#2563eb")
+    deputy_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     documents = relationship("Document", back_populates="author_user", foreign_keys="Document.author_id")
+    deputy = relationship("User", remote_side="User.id", foreign_keys=[deputy_id])
     approvals = relationship("Approval", back_populates="user")
     comments = relationship("Comment", back_populates="user")
     notifications = relationship("Notification", back_populates="user")
@@ -45,11 +47,13 @@ class Document(Base):
     title = Column(String(500), nullable=False)
     description = Column(Text, default="")
     content = Column(Text, nullable=False)
-    doc_type = Column(String(50), nullable=False)  # contract, invoice, order, report, memo, statement, other
-    status = Column(String(20), default="draft")  # draft, pending, approved, rejected, archived
-    priority = Column(String(20), default="normal")  # normal, high, urgent
+    doc_type = Column(String(50), nullable=False)
+    status = Column(String(20), default="draft")
+    priority = Column(String(20), default="normal")
     sequential = Column(Boolean, default=False)
     deadline = Column(String(20), default="")
+    extra_fields = Column(JSON, default=dict)
+    deleted = Column(Boolean, default=False)
     author_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
@@ -153,7 +157,9 @@ class Attachment(Base):
     id = Column(Integer, primary_key=True, index=True)
     document_id = Column(Integer, ForeignKey("documents.id", ondelete="CASCADE"), nullable=False)
     filename = Column(String(500), nullable=False)
+    filepath = Column(String(1000), default="")
     size = Column(String(50), default="")
+    filesize = Column(Integer, default=0)
 
     document = relationship("Document", back_populates="attachments")
 
@@ -163,5 +169,25 @@ class ApprovalRoute(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(200), nullable=False)
-    user_ids = Column(Text, default="")  # comma-separated user IDs
+    user_ids = Column(Text, default="")
     sequential = Column(Boolean, default=False)
+
+
+class Task(Base):
+    __tablename__ = "tasks"
+
+    id = Column(Integer, primary_key=True, index=True)
+    title = Column(String(500), nullable=False)
+    description = Column(Text, default="")
+    document_id = Column(Integer, ForeignKey("documents.id", ondelete="SET NULL"), nullable=True)
+    author_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    assignee_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    status = Column(String(20), default="pending")  # pending, in_progress, completed, cancelled
+    priority = Column(String(20), default="medium")
+    deadline = Column(String(20), default="")
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+    document = relationship("Document", foreign_keys=[document_id])
+    author = relationship("User", foreign_keys=[author_id])
+    assignee = relationship("User", foreign_keys=[assignee_id])

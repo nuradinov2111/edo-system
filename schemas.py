@@ -1,6 +1,6 @@
 from pydantic import BaseModel, EmailStr
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Any
 
 
 # --- Auth ---
@@ -41,6 +41,7 @@ class DocumentCreate(BaseModel):
     priority: str = "normal"
     sequential: bool = False
     deadline: str = ""
+    extra_fields: dict[str, Any] = {}
     approver_ids: list[int] = []
     tag_ids: list[int] = []
     related_doc_ids: list[int] = []
@@ -81,7 +82,9 @@ class TagOut(BaseModel):
 class AttachmentOut(BaseModel):
     id: int
     filename: str
+    filepath: str = ""
     size: str
+    filesize: int = 0
     model_config = {"from_attributes": True}
 
 class VersionOut(BaseModel):
@@ -103,6 +106,8 @@ class DocumentOut(BaseModel):
     priority: str
     sequential: bool
     deadline: str
+    extra_fields: dict[str, Any] = {}
+    deleted: bool = False
     author_id: int
     author_name: str = ""
     created_at: datetime
@@ -162,3 +167,36 @@ class UserCreate(BaseModel):
     role: str = "user"
     department: str = ""
     position: str = ""
+
+
+# --- Task (поручение) ---
+class TaskCreate(BaseModel):
+    title: str
+    description: str = ""
+    document_id: Optional[int] = None
+    assignee_id: int
+    priority: str = "medium"
+    deadline: str = ""
+
+class TaskUpdate(BaseModel):
+    title: Optional[str] = None
+    description: Optional[str] = None
+    status: Optional[str] = None
+    priority: Optional[str] = None
+    deadline: Optional[str] = None
+
+class TaskOut(BaseModel):
+    id: int
+    title: str
+    description: str
+    document_id: Optional[int] = None
+    author_id: int
+    author_name: str = ""
+    assignee_id: int
+    assignee_name: str = ""
+    status: str
+    priority: str
+    deadline: str
+    created_at: datetime
+    updated_at: datetime
+    model_config = {"from_attributes": True}

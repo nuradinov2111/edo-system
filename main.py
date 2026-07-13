@@ -1,21 +1,27 @@
 import os
 from datetime import datetime, timezone
-from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi import FastAPI, Depends, HTTPException, status, UploadFile, File, Form
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session, joinedload
 from database import engine, get_db, Base
 from models import (
     User, Document, Tag, Approval, Comment, Notification,
-    History, Version, Attachment, ApprovalRoute, doc_tags, doc_related,
+    History, Version, Attachment, ApprovalRoute, doc_tags, doc_related, Task,
 )
 from schemas import (
     UserRegister, UserLogin, UserOut, Token, UserCreate,
     DocumentCreate, DocumentOut, ApprovalOut, CommentOut, CommentCreate,
     ApprovalAction, NotificationOut, RouteCreate, RouteOut, TagOut,
+    TaskCreate, TaskUpdate, TaskOut,
 )
 from auth import hash_password, verify_password, create_token, get_current_user
 import secrets
+import shutil
+import json
+
+UPLOAD_DIR = os.path.join(os.path.dirname(__file__), "uploads")
+os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 app = FastAPI(title="ЭДО API")
 
@@ -24,7 +30,6 @@ app = FastAPI(title="ЭДО API")
 def startup():
     Base.metadata.create_all(bind=engine)
     db = next(get_db())
-    # Создаем метки если их нет
     if db.query(Tag).count() == 0:
         for name, color in [("Срочно","red"),("Финансы","green"),("Кадры","blue"),("Продажи","yellow"),("Важно","purple"),("Личное","pink")]:
             db.add(Tag(name=name, color=color))
@@ -101,7 +106,12 @@ def list_tags(db: Session = Depends(get_db), user: User = Depends(get_current_us
 
 # ============ DOCUMENTS ============
 
-TYPE_PREFIX = {"contract":"ДОГ","invoice":"СЧ","order":"ПР","report":"ОТЧ","memo":"СЗ","statement":"ЗАЯ","other":"ДОК"}
+TYPE_PREFIX = {
+    "contract":"ДОГ","invoice":"СЧ","order":"ПР","report":"ОТЧ","memo":"СЗ",
+    "statement":"ЗАЯ","protocol":"ПРОТ","letter":"ПИС","nda":"НДА",
+    "vacation":"ОТП","trip":"КОМ","purchase":"ЗЗ","job_desc":"ДИ",
+    "act":"АКТ","regulation":"ПОЛ","other":"ДОК",
+}
 
 def gen_number(db: Session, doc_type: str) -> str:
     prefix = TYPE_PREFIX.get(doc_type, "ДОК")
@@ -114,9 +124,11 @@ def gen_number(db: Session, doc_type: str) -> str:
 def doc_to_out(doc: Document) -> DocumentOut:
     return DocumentOut(
         id=doc.id, number=doc.number or "", title=doc.title,
-        description=doc.description or "", content=doc.content,
+        description=doc.description or "", content=doc.content or "",
         doc_type=doc.doc_type, status=doc.status, priority=doc.priority or "normal",
         sequential=doc.sequential, deadline=doc.deadline or "",
+        extra_fields=doc.extra_fields or {},
+        deleted=doc.deleted or False,
         author_id=doc.author_id, author_name=doc.author_user.name if doc.author_user else "",
         created_at=doc.created_at, updated_at=doc.updated_at,
         approvals=[ApprovalOut(
@@ -130,7 +142,7 @@ def doc_to_out(doc: Document) -> DocumentOut:
         ) for c in doc.comments],
         history=[{"id": h.id, "user_name": h.user_name, "text": h.text, "created_at": h.created_at} for h in doc.history],
         versions=[{"id": v.id, "title": v.title, "content": v.content, "user_name": v.user_name, "created_at": v.created_at} for v in doc.versions],
-        attachments=[{"id": att.id, "filename": att.filename, "size": att.size} for att in doc.attachments],
+        attachments=[{"id": att.id, "filename": att.filename, "filepath": att.filepath or "", "size": att.size, "filesize": att.filesize or 0} for att in doc.attachments],
         tags=[TagOut.model_validate(t) for t in doc.tags],
         related_doc_ids=[r.id for r in doc.related_docs],
     )
@@ -161,7 +173,25 @@ def add_notification(db: Session, user_id: int, notif_type: str, title: str, mes
 
 
 @app.get("/api/documents", response_model=list[DocumentOut])
-def list_documents(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+def list_documents(include_deleted: bool = False, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    q = db.query(Document).options(
+        joinedload(Document.author_user),
+        joinedload(Document.approvals).joinedload(Approval.user),
+        joinedload(Document.comments).joinedload(Comment.user),
+        joinedload(Document.history),
+        joinedload(Document.versions),
+        joinedload(Document.attachments),
+        joinedload(Document.tags),
+        joinedload(Document.related_docs),
+    )
+    if not include_deleted:
+        q = q.filter(Document.deleted == False)
+    docs = q.order_by(Document.updated_at.desc()).all()
+    return [doc_to_out(d) for d in docs]
+
+
+@app.get("/api/documents/trash", response_model=list[DocumentOut])
+def list_trash(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     docs = db.query(Document).options(
         joinedload(Document.author_user),
         joinedload(Document.approvals).joinedload(Approval.user),
@@ -171,7 +201,7 @@ def list_documents(db: Session = Depends(get_db), user: User = Depends(get_curre
         joinedload(Document.attachments),
         joinedload(Document.tags),
         joinedload(Document.related_docs),
-    ).order_by(Document.updated_at.desc()).all()
+    ).filter(Document.deleted == True).order_by(Document.updated_at.desc()).all()
     return [doc_to_out(d) for d in docs]
 
 
@@ -182,28 +212,25 @@ def create_document(data: DocumentCreate, db: Session = Depends(get_db), user: U
         number=number, title=data.title, description=data.description,
         content=data.content, doc_type=data.doc_type, status=data.status,
         priority=data.priority, sequential=data.sequential,
-        deadline=data.deadline, author_id=user.id,
+        deadline=data.deadline, extra_fields=data.extra_fields or {},
+        author_id=user.id,
     )
     db.add(doc)
     db.flush()
 
-    # Tags
     if data.tag_ids:
         tags = db.query(Tag).filter(Tag.id.in_(data.tag_ids)).all()
         doc.tags = tags
 
-    # Attachments
     for att in data.attachments:
         db.add(Attachment(document_id=doc.id, filename=att.get("name",""), size=att.get("size","")))
 
-    # Related docs
     if data.related_doc_ids:
         related = db.query(Document).filter(Document.id.in_(data.related_doc_ids)).all()
         doc.related_docs = related
 
     add_history(db, doc, user.name, "Создан")
 
-    # Approvers
     if data.status == "pending" and data.approver_ids:
         for i, uid in enumerate(data.approver_ids):
             db.add(Approval(document_id=doc.id, user_id=uid, order_num=i))
@@ -226,7 +253,6 @@ def update_document(doc_id: int, data: DocumentCreate, db: Session = Depends(get
     if doc.author_id != user.id and user.role != "admin":
         raise HTTPException(403, "Нет прав")
 
-    # Save version if content changed
     if doc.content != data.content or doc.title != data.title:
         db.add(Version(document_id=doc.id, title=doc.title, content=doc.content, user_name=user.name))
 
@@ -238,25 +264,22 @@ def update_document(doc_id: int, data: DocumentCreate, db: Session = Depends(get
     doc.priority = data.priority
     doc.sequential = data.sequential
     doc.deadline = data.deadline
+    doc.extra_fields = data.extra_fields or {}
     doc.updated_at = datetime.now(timezone.utc)
 
-    # Tags
     tags = db.query(Tag).filter(Tag.id.in_(data.tag_ids)).all() if data.tag_ids else []
     doc.tags = tags
 
-    # Attachments — replace
     for att in doc.attachments:
         db.delete(att)
     for att in data.attachments:
         db.add(Attachment(document_id=doc.id, filename=att.get("name",""), size=att.get("size","")))
 
-    # Related docs
     related = db.query(Document).filter(Document.id.in_(data.related_doc_ids)).all() if data.related_doc_ids else []
     doc.related_docs = related
 
     add_history(db, doc, user.name, "Отредактирован")
 
-    # Approvers on pending
     if data.status == "pending" and data.approver_ids:
         for a in doc.approvals:
             db.delete(a)
@@ -271,11 +294,42 @@ def update_document(doc_id: int, data: DocumentCreate, db: Session = Depends(get
     return doc_to_out(load_doc(db, doc.id))
 
 
+# Мягкое удаление (в корзину)
 @app.delete("/api/documents/{doc_id}")
 def delete_document(doc_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     doc = load_doc(db, doc_id)
     if doc.author_id != user.id and user.role != "admin":
         raise HTTPException(403, "Нет прав")
+    doc.deleted = True
+    doc.updated_at = datetime.now(timezone.utc)
+    add_history(db, doc, user.name, "Перемещён в корзину")
+    db.commit()
+    return {"ok": True}
+
+
+# Восстановить из корзины
+@app.post("/api/documents/{doc_id}/restore")
+def restore_document(doc_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    doc = load_doc(db, doc_id)
+    if doc.author_id != user.id and user.role != "admin":
+        raise HTTPException(403, "Нет прав")
+    doc.deleted = False
+    doc.updated_at = datetime.now(timezone.utc)
+    add_history(db, doc, user.name, "Восстановлен из корзины")
+    db.commit()
+    return {"ok": True}
+
+
+# Окончательное удаление
+@app.delete("/api/documents/{doc_id}/permanent")
+def permanent_delete(doc_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    doc = load_doc(db, doc_id)
+    if doc.author_id != user.id and user.role != "admin":
+        raise HTTPException(403, "Нет прав")
+    # Delete uploaded files
+    for att in doc.attachments:
+        if att.filepath and os.path.exists(att.filepath):
+            os.remove(att.filepath)
     db.delete(doc)
     db.commit()
     return {"ok": True}
@@ -290,10 +344,9 @@ def approve_document(doc_id: int, data: ApprovalAction, db: Session = Depends(ge
         raise HTTPException(400, "Документ не на согласовании")
 
     approval = None
-    for i, a in enumerate(sorted(doc.approvals, key=lambda x: x.order_num)):
+    for a in sorted(doc.approvals, key=lambda x: x.order_num):
         if a.user_id == user.id and a.status == "pending":
             if doc.sequential:
-                # Check all previous are approved
                 for prev in sorted(doc.approvals, key=lambda x: x.order_num):
                     if prev.order_num < a.order_num and prev.status != "approved":
                         raise HTTPException(400, "Дождитесь предыдущего согласующего")
@@ -310,7 +363,6 @@ def approve_document(doc_id: int, data: ApprovalAction, db: Session = Depends(ge
 
     add_history(db, doc, user.name, f"ЭЦП: {user.name}")
 
-    # Check if all approved
     db.flush()
     all_approved = all(a.status == "approved" for a in doc.approvals)
     if all_approved:
@@ -408,7 +460,8 @@ def copy_document(doc_id: int, db: Session = Depends(get_db), user: User = Depen
     doc = Document(
         number=number, title=orig.title + " (копия)", description=orig.description,
         content=orig.content, doc_type=orig.doc_type, status="draft",
-        priority=orig.priority, deadline="", author_id=user.id,
+        priority=orig.priority, deadline="", extra_fields=orig.extra_fields or {},
+        author_id=user.id,
     )
     db.add(doc)
     db.flush()
@@ -439,6 +492,51 @@ def delegate_approval(doc_id: int, to_user_id: int, db: Session = Depends(get_db
     doc.updated_at = datetime.now(timezone.utc)
     db.commit()
     return doc_to_out(load_doc(db, doc.id))
+
+
+# ============ FILE UPLOAD ============
+
+@app.post("/api/documents/{doc_id}/upload")
+async def upload_file(doc_id: int, file: UploadFile = File(...), db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    doc = load_doc(db, doc_id)
+    doc_dir = os.path.join(UPLOAD_DIR, str(doc_id))
+    os.makedirs(doc_dir, exist_ok=True)
+    safe_name = secrets.token_hex(8) + "_" + (file.filename or "file")
+    filepath = os.path.join(doc_dir, safe_name)
+    with open(filepath, "wb") as f:
+        content = await file.read()
+        f.write(content)
+    att = Attachment(
+        document_id=doc_id, filename=file.filename or "file",
+        filepath=filepath, size=str(len(content)),
+        filesize=len(content),
+    )
+    db.add(att)
+    add_history(db, doc, user.name, f"Файл загружен: {file.filename}")
+    doc.updated_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(att)
+    return {"id": att.id, "filename": att.filename, "size": att.size, "filesize": att.filesize}
+
+
+@app.get("/api/attachments/{att_id}/download")
+def download_file(att_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    att = db.query(Attachment).filter(Attachment.id == att_id).first()
+    if not att or not att.filepath or not os.path.exists(att.filepath):
+        raise HTTPException(404, "Файл не найден")
+    return FileResponse(att.filepath, filename=att.filename)
+
+
+@app.delete("/api/attachments/{att_id}")
+def delete_file(att_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    att = db.query(Attachment).filter(Attachment.id == att_id).first()
+    if not att:
+        raise HTTPException(404, "Файл не найден")
+    if att.filepath and os.path.exists(att.filepath):
+        os.remove(att.filepath)
+    db.delete(att)
+    db.commit()
+    return {"ok": True}
 
 
 # ============ COMMENTS ============
@@ -476,6 +574,87 @@ def read_notification(notif_id: int, db: Session = Depends(get_db), user: User =
     if n:
         n.read = True
         db.commit()
+    return {"ok": True}
+
+
+# ============ TASKS (Поручения) ============
+
+@app.get("/api/tasks", response_model=list[TaskOut])
+def list_tasks(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    tasks = db.query(Task).filter(
+        (Task.author_id == user.id) | (Task.assignee_id == user.id)
+    ).order_by(Task.created_at.desc()).all()
+    result = []
+    for t in tasks:
+        out = TaskOut.model_validate(t)
+        out.author_name = t.author.name if t.author else ""
+        out.assignee_name = t.assignee.name if t.assignee else ""
+        result.append(out)
+    return result
+
+
+@app.post("/api/tasks", response_model=TaskOut)
+def create_task(data: TaskCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    assignee = db.query(User).filter(User.id == data.assignee_id).first()
+    if not assignee:
+        raise HTTPException(404, "Исполнитель не найден")
+    task = Task(
+        title=data.title, description=data.description,
+        document_id=data.document_id, author_id=user.id,
+        assignee_id=data.assignee_id, priority=data.priority,
+        deadline=data.deadline,
+    )
+    db.add(task)
+    db.flush()
+    add_notification(db, data.assignee_id, "task", "Новое поручение",
+                     f'{user.name}: "{data.title}"', data.document_id)
+    db.commit()
+    db.refresh(task)
+    out = TaskOut.model_validate(task)
+    out.author_name = user.name
+    out.assignee_name = assignee.name
+    return out
+
+
+@app.put("/api/tasks/{task_id}", response_model=TaskOut)
+def update_task(task_id: int, data: TaskUpdate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    task = db.query(Task).filter(Task.id == task_id).first()
+    if not task:
+        raise HTTPException(404, "Поручение не найдено")
+    if task.author_id != user.id and task.assignee_id != user.id and user.role != "admin":
+        raise HTTPException(403, "Нет прав")
+    if data.title is not None:
+        task.title = data.title
+    if data.description is not None:
+        task.description = data.description
+    if data.status is not None:
+        old_status = task.status
+        task.status = data.status
+        if data.status == "completed" and old_status != "completed":
+            add_notification(db, task.author_id, "task_done", "Поручение выполнено",
+                             f'"{task.title}" выполнено', task.document_id)
+    if data.priority is not None:
+        task.priority = data.priority
+    if data.deadline is not None:
+        task.deadline = data.deadline
+    task.updated_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(task)
+    out = TaskOut.model_validate(task)
+    out.author_name = task.author.name if task.author else ""
+    out.assignee_name = task.assignee.name if task.assignee else ""
+    return out
+
+
+@app.delete("/api/tasks/{task_id}")
+def delete_task(task_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    task = db.query(Task).filter(Task.id == task_id).first()
+    if not task:
+        raise HTTPException(404, "Поручение не найдено")
+    if task.author_id != user.id and user.role != "admin":
+        raise HTTPException(403, "Нет прав")
+    db.delete(task)
+    db.commit()
     return {"ok": True}
 
 
