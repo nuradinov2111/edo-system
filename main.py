@@ -58,6 +58,25 @@ def startup():
         for name, color in [("Срочно","red"),("Финансы","green"),("Кадры","blue"),("Продажи","yellow"),("Важно","purple"),("Личное","pink")]:
             db.add(Tag(name=name, color=color))
         db.commit()
+
+    # Seed 3 demo users
+    demo_users = [
+        {"name": "Администратор", "email": "admin@edo.com", "password": "admin123",
+         "role": "admin", "department": "Руководство", "position": "Системный администратор", "color": "#2563eb"},
+        {"name": "Менеджер Иванов", "email": "manager@edo.com", "password": "manager123",
+         "role": "user", "department": "Управление", "position": "Менеджер проектов", "color": "#16a34a"},
+        {"name": "Сотрудник Петров", "email": "user@edo.com", "password": "user123",
+         "role": "user", "department": "Отдел разработки", "position": "Специалист", "color": "#7c3aed"},
+    ]
+    for u in demo_users:
+        if not db.query(User).filter(User.email == u["email"]).first():
+            db.add(User(
+                name=u["name"], email=u["email"],
+                password_hash=hash_password(u["password"]),
+                role=u["role"], department=u["department"],
+                position=u["position"], color=u["color"],
+            ))
+    db.commit()
     db.close()
 
 
