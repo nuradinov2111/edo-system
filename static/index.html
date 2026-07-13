@@ -190,6 +190,12 @@ tr:hover td{background:var(--g50)}
       <div class="form-group"><label>Логин (6 букв)</label><input type="text" id="loginLogin" required maxlength="6" pattern="[A-Za-z]{6}" placeholder="abcdef"></div>
       <div class="form-group"><label>Пароль</label><input type="password" id="loginPass" required></div>
       <button class="btn btn-primary btn-block btn-lg" type="submit">Войти</button>
+      <div style="margin-top:1rem;padding:.75rem;background:var(--hover);border-radius:var(--radius);font-size:.75rem;line-height:1.6">
+        <div style="font-weight:600;margin-bottom:.25rem">Тестовые аккаунты:</div>
+        <div style="cursor:pointer" onclick="document.getElementById('loginLogin').value='admedo';document.getElementById('loginPass').value='admin123'">Админ: <b>admedo</b> / admin123</div>
+        <div style="cursor:pointer" onclick="document.getElementById('loginLogin').value='manger';document.getElementById('loginPass').value='manager123'">Менеджер: <b>manger</b> / manager123</div>
+        <div style="cursor:pointer" onclick="document.getElementById('loginLogin').value='usredo';document.getElementById('loginPass').value='user123'">Сотрудник: <b>usredo</b> / user123</div>
+      </div>
     </form>
     <form id="registerForm" class="hidden" onsubmit="return doRegister(event)">
       <div class="form-group"><label>Имя</label><input type="text" id="regName" required></div>
