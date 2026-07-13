@@ -60,11 +60,9 @@ def run_migrations(eng):
     from sqlalchemy import text, inspect
     insp = inspect(eng)
     existing_tables = insp.get_table_names()
-    is_pg = "postgresql" in str(eng.url)
-    json_type = "JSONB" if is_pg else "TEXT"
     with eng.connect() as conn:
         migrations = [
-            ("documents", "extra_fields", f"{json_type} DEFAULT '{{}}'"),
+            ("documents", "extra_fields", "TEXT DEFAULT '{}'"),
             ("documents", "deleted", "BOOLEAN DEFAULT FALSE"),
             ("users", "deputy_id", "INTEGER"),
             ("attachments", "filepath", "VARCHAR(1000) DEFAULT ''"),
@@ -77,16 +75,6 @@ def run_migrations(eng):
                     conn.execute(text(f'ALTER TABLE {table} ADD COLUMN {col} {col_type}'))
         conn.commit()
 
-    # Separate connection for type conversion (needs own transaction)
-    if is_pg and "documents" in existing_tables:
-        with eng.connect() as conn:
-            try:
-                conn.execute(text(
-                    "ALTER TABLE documents ALTER COLUMN extra_fields TYPE JSONB USING extra_fields::jsonb"
-                ))
-                conn.commit()
-            except Exception:
-                conn.rollback()
 
 
 @app.on_event("startup")
@@ -210,7 +198,7 @@ def doc_to_out(doc: Document) -> DocumentOut:
         description=doc.description or "", content=doc.content or "",
         doc_type=doc.doc_type, status=doc.status, priority=doc.priority or "normal",
         sequential=doc.sequential, deadline=doc.deadline or "",
-        extra_fields=doc.extra_fields or {},
+        extra_fields=json.loads(doc.extra_fields) if isinstance(doc.extra_fields, str) else (doc.extra_fields or {}),
         deleted=doc.deleted or False,
         author_id=doc.author_id, author_name=doc.author_user.name if doc.author_user else "",
         created_at=doc.created_at, updated_at=doc.updated_at,
@@ -295,7 +283,7 @@ def create_document(data: DocumentCreate, db: Session = Depends(get_db), user: U
         number=number, title=data.title, description=data.description,
         content=data.content, doc_type=data.doc_type, status=data.status,
         priority=data.priority, sequential=data.sequential,
-        deadline=data.deadline, extra_fields=data.extra_fields or {},
+        deadline=data.deadline, extra_fields=json.dumps(data.extra_fields or {}, ensure_ascii=False),
         author_id=user.id,
     )
     db.add(doc)
@@ -347,7 +335,7 @@ def update_document(doc_id: int, data: DocumentCreate, db: Session = Depends(get
     doc.priority = data.priority
     doc.sequential = data.sequential
     doc.deadline = data.deadline
-    doc.extra_fields = data.extra_fields or {}
+    doc.extra_fields = json.dumps(data.extra_fields or {}, ensure_ascii=False)
     doc.updated_at = datetime.now(timezone.utc)
 
     tags = db.query(Tag).filter(Tag.id.in_(data.tag_ids)).all() if data.tag_ids else []
@@ -576,7 +564,7 @@ def copy_document(doc_id: int, db: Session = Depends(get_db), user: User = Depen
     doc = Document(
         number=number, title=orig.title + " (копия)", description=orig.description,
         content=orig.content, doc_type=orig.doc_type, status="draft",
-        priority=orig.priority, deadline="", extra_fields=orig.extra_fields or {},
+        priority=orig.priority, deadline="", extra_fields=orig.extra_fields or "{}",
         author_id=user.id,
     )
     db.add(doc)

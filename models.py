@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, Boolean, DateTime, ForeignKey, Table, JSON
+from sqlalchemy import Column, Integer, String, Text, Boolean, DateTime, ForeignKey, Table
 from sqlalchemy.orm import relationship
 from datetime import datetime, timezone
 from database import Base
@@ -52,7 +52,7 @@ class Document(Base):
     priority = Column(String(20), default="normal")
     sequential = Column(Boolean, default=False)
     deadline = Column(String(20), default="")
-    extra_fields = Column(JSON, default=dict)
+    extra_fields = Column(Text, default="{}")
     deleted = Column(Boolean, default=False)
     author_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
