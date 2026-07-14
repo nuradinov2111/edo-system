@@ -924,30 +924,48 @@ def export_pdf(doc_id: int, db: Session = Depends(get_db), user: User = Depends(
     doc = load_doc(db, doc_id)
     d = doc_to_out(doc)
 
-    # Find font - use DejaVu from fpdf2 package or system
-    font_dir = os.path.join(os.path.dirname(__file__), "fonts")
-    os.makedirs(font_dir, exist_ok=True)
-    font_path = os.path.join(font_dir, "DejaVuSans.ttf")
-    font_bold_path = os.path.join(font_dir, "DejaVuSans-Bold.ttf")
+    # Find DejaVu font: system paths (Linux/Render), then download
+    font_path = None
+    font_bold_path = None
+    search_paths = [
+        "/usr/share/fonts/truetype/dejavu",
+        "/usr/share/fonts/dejavu",
+        "/usr/share/fonts/TTF",
+    ]
+    for sp in search_paths:
+        fp = os.path.join(sp, "DejaVuSans.ttf")
+        fb = os.path.join(sp, "DejaVuSans-Bold.ttf")
+        if os.path.exists(fp):
+            font_path, font_bold_path = fp, fb
+            break
 
-    # Try to get fonts from fpdf2 package directory
-    if not os.path.exists(font_path):
-        try:
-            import urllib.request
-            cdn = "https://cdn.jsdelivr.net/gh/dejavu-fonts/dejavu-fonts@master/ttf/"
-            urllib.request.urlretrieve(cdn + "DejaVuSans.ttf", font_path)
-            urllib.request.urlretrieve(cdn + "DejaVuSans-Bold.ttf", font_bold_path)
-        except Exception:
-            # Fallback: generate simple PDF without Unicode
-            pass
+    if not font_path:
+        font_dir = os.path.join(os.path.dirname(__file__), "fonts")
+        os.makedirs(font_dir, exist_ok=True)
+        fp = os.path.join(font_dir, "DejaVuSans.ttf")
+        fb = os.path.join(font_dir, "DejaVuSans-Bold.ttf")
+        if not os.path.exists(fp):
+            try:
+                import urllib.request
+                base = "https://raw.githubusercontent.com/dejavu-fonts/dejavu-fonts/master/ttf/"
+                urllib.request.urlretrieve(base + "DejaVuSans.ttf", fp)
+                urllib.request.urlretrieve(base + "DejaVuSans-Bold.ttf", fb)
+            except Exception:
+                pass
+        if os.path.exists(fp):
+            font_path, font_bold_path = fp, fb
 
     pdf = FPDF()
     pdf.add_page()
-    has_unicode = os.path.exists(font_path)
-    if has_unicode:
-        pdf.add_font('DejaVu', '', font_path, uni=True)
-        pdf.add_font('DejaVu', 'B', font_bold_path, uni=True)
-    font_name = 'DejaVu' if has_unicode else 'Helvetica'
+    if font_path and os.path.exists(font_path):
+        pdf.add_font('DejaVu', '', font_path)
+        if font_bold_path and os.path.exists(font_bold_path):
+            pdf.add_font('DejaVu', 'B', font_bold_path)
+        else:
+            pdf.add_font('DejaVu', 'B', font_path)
+        font_name = 'DejaVu'
+    else:
+        font_name = 'Helvetica'
     pdf.set_auto_page_break(auto=True, margin=15)
 
     # Title
