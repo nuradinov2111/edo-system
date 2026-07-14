@@ -925,7 +925,17 @@ def export_pdf(doc_id: int, db: Session = Depends(get_db), user: User = Depends(
         """Remove surrogates and problematic chars for PDF."""
         if not text:
             return ""
-        return text.encode('utf-8', errors='replace').decode('utf-8').replace('\xa0', ' ')
+        # Remove surrogates char by char, replace nbsp
+        out = []
+        for ch in str(text):
+            cp = ord(ch)
+            if 0xD800 <= cp <= 0xDFFF:
+                out.append('?')
+            elif cp == 0xA0:
+                out.append(' ')
+            else:
+                out.append(ch)
+        return ''.join(out)
 
     doc = load_doc(db, doc_id)
     d = doc_to_out(doc)
