@@ -921,6 +921,12 @@ def export_pdf(doc_id: int, db: Session = Depends(get_db), user: User = Depends(
     from fpdf import FPDF
     import tempfile
 
+    def clean(text):
+        """Remove surrogates and problematic chars for PDF."""
+        if not text:
+            return ""
+        return text.encode('utf-8', errors='replace').decode('utf-8').replace('\xa0', ' ')
+
     doc = load_doc(db, doc_id)
     d = doc_to_out(doc)
 
@@ -970,7 +976,7 @@ def export_pdf(doc_id: int, db: Session = Depends(get_db), user: User = Depends(
 
     # Title
     pdf.set_font(font_name, 'B', 16)
-    pdf.multi_cell(0, 10, d.title, align='C')
+    pdf.multi_cell(0, 10, clean(d.title), align='C')
     pdf.ln(5)
 
     # Meta
@@ -978,7 +984,7 @@ def export_pdf(doc_id: int, db: Session = Depends(get_db), user: User = Depends(
         pdf.set_font(font_name, 'B', 10)
         pdf.cell(40, 7, f'{label}:', ln=0)
         pdf.set_font(font_name, '', 10)
-        pdf.cell(0, 7, str(value), ln=1)
+        pdf.cell(0, 7, clean(str(value)), ln=1)
 
     add_field('Номер', d.number)
     add_field('Тип', DOC_TYPE_LABELS.get(d.doc_type, d.doc_type))
@@ -999,14 +1005,14 @@ def export_pdf(doc_id: int, db: Session = Depends(get_db), user: User = Depends(
         pdf.cell(0, 8, 'Дополнительные поля', ln=1)
         for k, v in d.extra_fields.items():
             if v:
-                add_field(k, str(v))
+                add_field(clean(k), clean(str(v)))
 
     # Content
     pdf.ln(5)
     pdf.set_font(font_name, 'B', 12)
     pdf.cell(0, 8, 'Содержание', ln=1)
     pdf.set_font(font_name, '', 10)
-    pdf.multi_cell(0, 6, d.content or '')
+    pdf.multi_cell(0, 6, clean(d.content or ''))
 
     # Approvals
     if d.approvals:
@@ -1015,13 +1021,13 @@ def export_pdf(doc_id: int, db: Session = Depends(get_db), user: User = Depends(
         pdf.cell(0, 8, 'Согласование', ln=1)
         for a in d.approvals:
             pdf.set_font(font_name, 'B', 10)
-            pdf.cell(50, 7, a.user_name + ':', ln=0)
+            pdf.cell(50, 7, clean(a.user_name) + ':', ln=0)
             pdf.set_font(font_name, '', 10)
             status_text = STATUS_LABELS.get(a.status, a.status)
             line = status_text
             if a.comment:
-                line += f' — {a.comment}'
-            pdf.cell(0, 7, line, ln=1)
+                line += f' — {clean(a.comment)}'
+            pdf.cell(0, 7, clean(line), ln=1)
 
     # Comments
     if d.comments:
@@ -1030,9 +1036,9 @@ def export_pdf(doc_id: int, db: Session = Depends(get_db), user: User = Depends(
         pdf.cell(0, 8, 'Комментарии', ln=1)
         for c in d.comments:
             pdf.set_font(font_name, 'B', 10)
-            pdf.cell(50, 7, c.user_name + ':', ln=0)
+            pdf.cell(50, 7, clean(c.user_name) + ':', ln=0)
             pdf.set_font(font_name, '', 10)
-            pdf.multi_cell(0, 7, c.text)
+            pdf.multi_cell(0, 7, clean(c.text))
 
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix='.pdf')
     pdf.output(tmp.name)
