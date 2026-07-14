@@ -924,35 +924,42 @@ def export_pdf(doc_id: int, db: Session = Depends(get_db), user: User = Depends(
     doc = load_doc(db, doc_id)
     d = doc_to_out(doc)
 
-    # Find font
+    # Find font - use DejaVu from fpdf2 package or system
     font_dir = os.path.join(os.path.dirname(__file__), "fonts")
     os.makedirs(font_dir, exist_ok=True)
     font_path = os.path.join(font_dir, "DejaVuSans.ttf")
     font_bold_path = os.path.join(font_dir, "DejaVuSans-Bold.ttf")
 
-    # Download fonts if missing
+    # Try to get fonts from fpdf2 package directory
     if not os.path.exists(font_path):
-        import urllib.request
-        base_url = "https://github.com/dejavu-fonts/dejavu-fonts/raw/master/ttf/"
-        urllib.request.urlretrieve(base_url + "DejaVuSans.ttf", font_path)
-        urllib.request.urlretrieve(base_url + "DejaVuSans-Bold.ttf", font_bold_path)
+        try:
+            import urllib.request
+            cdn = "https://cdn.jsdelivr.net/gh/dejavu-fonts/dejavu-fonts@master/ttf/"
+            urllib.request.urlretrieve(cdn + "DejaVuSans.ttf", font_path)
+            urllib.request.urlretrieve(cdn + "DejaVuSans-Bold.ttf", font_bold_path)
+        except Exception:
+            # Fallback: generate simple PDF without Unicode
+            pass
 
     pdf = FPDF()
     pdf.add_page()
-    pdf.add_font('DejaVu', '', font_path, uni=True)
-    pdf.add_font('DejaVu', 'B', font_bold_path, uni=True)
+    has_unicode = os.path.exists(font_path)
+    if has_unicode:
+        pdf.add_font('DejaVu', '', font_path, uni=True)
+        pdf.add_font('DejaVu', 'B', font_bold_path, uni=True)
+    font_name = 'DejaVu' if has_unicode else 'Helvetica'
     pdf.set_auto_page_break(auto=True, margin=15)
 
     # Title
-    pdf.set_font('DejaVu', 'B', 16)
+    pdf.set_font(font_name, 'B', 16)
     pdf.multi_cell(0, 10, d.title, align='C')
     pdf.ln(5)
 
     # Meta
     def add_field(label, value):
-        pdf.set_font('DejaVu', 'B', 10)
+        pdf.set_font(font_name, 'B', 10)
         pdf.cell(40, 7, f'{label}:', ln=0)
-        pdf.set_font('DejaVu', '', 10)
+        pdf.set_font(font_name, '', 10)
         pdf.cell(0, 7, str(value), ln=1)
 
     add_field('Номер', d.number)
@@ -970,7 +977,7 @@ def export_pdf(doc_id: int, db: Session = Depends(get_db), user: User = Depends(
     # Extra fields
     if d.extra_fields:
         pdf.ln(5)
-        pdf.set_font('DejaVu', 'B', 12)
+        pdf.set_font(font_name, 'B', 12)
         pdf.cell(0, 8, 'Дополнительные поля', ln=1)
         for k, v in d.extra_fields.items():
             if v:
@@ -978,20 +985,20 @@ def export_pdf(doc_id: int, db: Session = Depends(get_db), user: User = Depends(
 
     # Content
     pdf.ln(5)
-    pdf.set_font('DejaVu', 'B', 12)
+    pdf.set_font(font_name, 'B', 12)
     pdf.cell(0, 8, 'Содержание', ln=1)
-    pdf.set_font('DejaVu', '', 10)
+    pdf.set_font(font_name, '', 10)
     pdf.multi_cell(0, 6, d.content or '')
 
     # Approvals
     if d.approvals:
         pdf.ln(5)
-        pdf.set_font('DejaVu', 'B', 12)
+        pdf.set_font(font_name, 'B', 12)
         pdf.cell(0, 8, 'Согласование', ln=1)
         for a in d.approvals:
-            pdf.set_font('DejaVu', 'B', 10)
+            pdf.set_font(font_name, 'B', 10)
             pdf.cell(50, 7, a.user_name + ':', ln=0)
-            pdf.set_font('DejaVu', '', 10)
+            pdf.set_font(font_name, '', 10)
             status_text = STATUS_LABELS.get(a.status, a.status)
             line = status_text
             if a.comment:
@@ -1001,12 +1008,12 @@ def export_pdf(doc_id: int, db: Session = Depends(get_db), user: User = Depends(
     # Comments
     if d.comments:
         pdf.ln(5)
-        pdf.set_font('DejaVu', 'B', 12)
+        pdf.set_font(font_name, 'B', 12)
         pdf.cell(0, 8, 'Комментарии', ln=1)
         for c in d.comments:
-            pdf.set_font('DejaVu', 'B', 10)
+            pdf.set_font(font_name, 'B', 10)
             pdf.cell(50, 7, c.user_name + ':', ln=0)
-            pdf.set_font('DejaVu', '', 10)
+            pdf.set_font(font_name, '', 10)
             pdf.multi_cell(0, 7, c.text)
 
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix='.pdf')
