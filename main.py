@@ -807,6 +807,215 @@ def delete_route(route_id: int, db: Session = Depends(get_db), user: User = Depe
 
 # ============ STATIC ============
 
+# ============ EXPORT (PDF / DOCX) ============
+
+DOC_TYPE_LABELS = {
+    "contract":"Договор","invoice":"Счёт на оплату","order":"Приказ","report":"Отчёт",
+    "memo":"Служебная записка","statement":"Заявление","protocol":"Протокол","letter":"Письмо",
+    "vacation":"Заявление на отпуск","trip":"Командировка","purchase":"Заявка на закупку",
+    "job_desc":"Должностная инструкция","act":"Акт выполненных работ","regulation":"Положение",
+    "nda":"NDA","advance_report":"Авансовый отчёт","payment_order":"Платёжное поручение",
+    "invoice_tax":"Счёт-фактура","waybill":"Товарная накладная",
+    "accounting_memo":"Бухгалтерская справка","power_of_attorney":"Доверенность",
+    "cash_order":"Кассовый ордер","other":"Прочее",
+}
+STATUS_LABELS = {"draft":"Черновик","pending":"На согласовании","approved":"Согласован","rejected":"Отклонён","archived":"Архив"}
+PRIORITY_LABELS = {"low":"Низкий","normal":"Обычный","high":"Высокий","urgent":"Срочный"}
+
+
+@app.get("/api/documents/{doc_id}/export/docx")
+def export_docx(doc_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    from docx import Document as DocxDocument
+    from docx.shared import Pt, RGBColor, Cm
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    import tempfile
+
+    doc = load_doc(db, doc_id)
+    d = doc_to_out(doc)
+
+    dx = DocxDocument()
+    style = dx.styles['Normal']
+    style.font.name = 'Times New Roman'
+    style.font.size = Pt(12)
+
+    # Header
+    h = dx.add_heading('', level=1)
+    run = h.add_run(d.title)
+    run.font.size = Pt(16)
+    run.font.color.rgb = RGBColor(0, 0, 0)
+    h.alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+    # Meta info
+    dx.add_paragraph('')
+    meta = [
+        ('Номер', d.number), ('Тип', DOC_TYPE_LABELS.get(d.doc_type, d.doc_type)),
+        ('Статус', STATUS_LABELS.get(d.status, d.status)),
+        ('Приоритет', PRIORITY_LABELS.get(d.priority, d.priority)),
+        ('Автор', d.author_name), ('Дедлайн', d.deadline or '—'),
+        ('Создан', d.created_at.strftime('%d.%m.%Y %H:%M') if d.created_at else ''),
+    ]
+    for label, value in meta:
+        p = dx.add_paragraph()
+        p.add_run(f'{label}: ').bold = True
+        p.add_run(str(value))
+
+    if d.description:
+        dx.add_paragraph('')
+        p = dx.add_paragraph()
+        p.add_run('Описание: ').bold = True
+        p.add_run(d.description)
+
+    # Extra fields
+    if d.extra_fields:
+        dx.add_paragraph('')
+        p = dx.add_paragraph()
+        p.add_run('Дополнительные поля:').bold = True
+        for k, v in d.extra_fields.items():
+            if v:
+                p = dx.add_paragraph()
+                p.add_run(f'  {k}: ').bold = True
+                p.add_run(str(v))
+
+    # Content
+    dx.add_paragraph('')
+    h2 = dx.add_heading('', level=2)
+    h2.add_run('Содержание').font.size = Pt(14)
+    for line in (d.content or '').split('\n'):
+        dx.add_paragraph(line)
+
+    # Approvals
+    if d.approvals:
+        dx.add_paragraph('')
+        h3 = dx.add_heading('', level=2)
+        h3.add_run('Согласование').font.size = Pt(14)
+        for a in d.approvals:
+            status_text = STATUS_LABELS.get(a.status, a.status)
+            p = dx.add_paragraph()
+            p.add_run(f'{a.user_name}: ').bold = True
+            p.add_run(f'{status_text}')
+            if a.comment:
+                p.add_run(f' — {a.comment}')
+            if a.decided_at:
+                p.add_run(f' ({a.decided_at.strftime("%d.%m.%Y %H:%M")})')
+
+    # Comments
+    if d.comments:
+        dx.add_paragraph('')
+        h3 = dx.add_heading('', level=2)
+        h3.add_run('Комментарии').font.size = Pt(14)
+        for c in d.comments:
+            p = dx.add_paragraph()
+            p.add_run(f'{c.user_name}: ').bold = True
+            p.add_run(c.text)
+
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix='.docx')
+    dx.save(tmp.name)
+    tmp.close()
+    safe_title = "".join(c for c in d.title[:40] if c.isalnum() or c in ' _-').strip() or 'document'
+    return FileResponse(tmp.name, filename=f'{d.number} {safe_title}.docx',
+                        media_type='application/vnd.openxmlformats-officedocument.wordprocessingml.document')
+
+
+@app.get("/api/documents/{doc_id}/export/pdf")
+def export_pdf(doc_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    from fpdf import FPDF
+    import tempfile
+
+    doc = load_doc(db, doc_id)
+    d = doc_to_out(doc)
+
+    # Find font
+    font_dir = os.path.join(os.path.dirname(__file__), "fonts")
+    os.makedirs(font_dir, exist_ok=True)
+    font_path = os.path.join(font_dir, "DejaVuSans.ttf")
+    font_bold_path = os.path.join(font_dir, "DejaVuSans-Bold.ttf")
+
+    # Download fonts if missing
+    if not os.path.exists(font_path):
+        import urllib.request
+        base_url = "https://github.com/dejavu-fonts/dejavu-fonts/raw/master/ttf/"
+        urllib.request.urlretrieve(base_url + "DejaVuSans.ttf", font_path)
+        urllib.request.urlretrieve(base_url + "DejaVuSans-Bold.ttf", font_bold_path)
+
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.add_font('DejaVu', '', font_path, uni=True)
+    pdf.add_font('DejaVu', 'B', font_bold_path, uni=True)
+    pdf.set_auto_page_break(auto=True, margin=15)
+
+    # Title
+    pdf.set_font('DejaVu', 'B', 16)
+    pdf.multi_cell(0, 10, d.title, align='C')
+    pdf.ln(5)
+
+    # Meta
+    def add_field(label, value):
+        pdf.set_font('DejaVu', 'B', 10)
+        pdf.cell(40, 7, f'{label}:', ln=0)
+        pdf.set_font('DejaVu', '', 10)
+        pdf.cell(0, 7, str(value), ln=1)
+
+    add_field('Номер', d.number)
+    add_field('Тип', DOC_TYPE_LABELS.get(d.doc_type, d.doc_type))
+    add_field('Статус', STATUS_LABELS.get(d.status, d.status))
+    add_field('Приоритет', PRIORITY_LABELS.get(d.priority, d.priority))
+    add_field('Автор', d.author_name)
+    add_field('Дедлайн', d.deadline or '—')
+    add_field('Создан', d.created_at.strftime('%d.%m.%Y %H:%M') if d.created_at else '')
+
+    if d.description:
+        pdf.ln(3)
+        add_field('Описание', d.description)
+
+    # Extra fields
+    if d.extra_fields:
+        pdf.ln(5)
+        pdf.set_font('DejaVu', 'B', 12)
+        pdf.cell(0, 8, 'Дополнительные поля', ln=1)
+        for k, v in d.extra_fields.items():
+            if v:
+                add_field(k, str(v))
+
+    # Content
+    pdf.ln(5)
+    pdf.set_font('DejaVu', 'B', 12)
+    pdf.cell(0, 8, 'Содержание', ln=1)
+    pdf.set_font('DejaVu', '', 10)
+    pdf.multi_cell(0, 6, d.content or '')
+
+    # Approvals
+    if d.approvals:
+        pdf.ln(5)
+        pdf.set_font('DejaVu', 'B', 12)
+        pdf.cell(0, 8, 'Согласование', ln=1)
+        for a in d.approvals:
+            pdf.set_font('DejaVu', 'B', 10)
+            pdf.cell(50, 7, a.user_name + ':', ln=0)
+            pdf.set_font('DejaVu', '', 10)
+            status_text = STATUS_LABELS.get(a.status, a.status)
+            line = status_text
+            if a.comment:
+                line += f' — {a.comment}'
+            pdf.cell(0, 7, line, ln=1)
+
+    # Comments
+    if d.comments:
+        pdf.ln(5)
+        pdf.set_font('DejaVu', 'B', 12)
+        pdf.cell(0, 8, 'Комментарии', ln=1)
+        for c in d.comments:
+            pdf.set_font('DejaVu', 'B', 10)
+            pdf.cell(50, 7, c.user_name + ':', ln=0)
+            pdf.set_font('DejaVu', '', 10)
+            pdf.multi_cell(0, 7, c.text)
+
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix='.pdf')
+    pdf.output(tmp.name)
+    tmp.close()
+    safe_title = "".join(c for c in d.title[:40] if c.isalnum() or c in ' _-').strip() or 'document'
+    return FileResponse(tmp.name, filename=f'{d.number} {safe_title}.pdf', media_type='application/pdf')
+
+
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 @app.get("/")
