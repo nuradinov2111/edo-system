@@ -1050,7 +1050,9 @@ def export_pdf(doc_id: int, db: Session = Depends(get_db), user: User = Depends(
         pdf.set_font(font_name, 'B', 12)
         pdf.cell(0, 8, 'Содержание', ln=1)
         pdf.set_font(font_name, '', 10)
-        pdf.multi_cell(0, 6, d.content or '')
+        pdf.set_x(pdf.l_margin)
+        pw = pdf.w - pdf.l_margin - pdf.r_margin
+        pdf.multi_cell(pw, 6, d.content or '')
 
         # Approvals
         if d.approvals:
@@ -1058,13 +1060,12 @@ def export_pdf(doc_id: int, db: Session = Depends(get_db), user: User = Depends(
             pdf.set_font(font_name, 'B', 12)
             pdf.cell(0, 8, 'Согласование', ln=1)
             for a in d.approvals:
-                pdf.set_font(font_name, 'B', 10)
-                line = a.user_name + ': '
                 pdf.set_font(font_name, '', 10)
-                line += STATUS_LABELS.get(a.status, a.status)
+                line = a.user_name + ': ' + STATUS_LABELS.get(a.status, a.status)
                 if a.comment:
                     line += f' — {a.comment}'
-                pdf.multi_cell(0, 7, line)
+                pdf.set_x(pdf.l_margin)
+                pdf.multi_cell(pw, 7, line)
 
         # Comments
         if d.comments:
@@ -1075,7 +1076,8 @@ def export_pdf(doc_id: int, db: Session = Depends(get_db), user: User = Depends(
                 pdf.set_font(font_name, 'B', 10)
                 pdf.cell(0, 7, c.user_name + ':', ln=1)
                 pdf.set_font(font_name, '', 10)
-                pdf.multi_cell(0, 6, c.text)
+                pdf.set_x(pdf.l_margin)
+                pdf.multi_cell(pw, 6, c.text)
                 pdf.ln(2)
 
         tmp = tempfile.NamedTemporaryFile(delete=False, suffix='.pdf')
