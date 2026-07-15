@@ -1039,12 +1039,12 @@ def export_pdf(doc_id: int, db: Session = Depends(get_db), user: User = Depends(
             pdf.cell(0, 8, 'Согласование', ln=1)
             for a in d.approvals:
                 pdf.set_font(font_name, 'B', 10)
-                pdf.cell(50, 7, a.user_name + ':', ln=0)
+                line = a.user_name + ': '
                 pdf.set_font(font_name, '', 10)
-                line = STATUS_LABELS.get(a.status, a.status)
+                line += STATUS_LABELS.get(a.status, a.status)
                 if a.comment:
                     line += f' — {a.comment}'
-                pdf.cell(0, 7, line, ln=1)
+                pdf.multi_cell(0, 7, line)
 
         # Comments
         if d.comments:
@@ -1053,9 +1053,10 @@ def export_pdf(doc_id: int, db: Session = Depends(get_db), user: User = Depends(
             pdf.cell(0, 8, 'Комментарии', ln=1)
             for c in d.comments:
                 pdf.set_font(font_name, 'B', 10)
-                pdf.cell(50, 7, c.user_name + ':', ln=0)
+                pdf.cell(0, 7, c.user_name + ':', ln=1)
                 pdf.set_font(font_name, '', 10)
-                pdf.multi_cell(0, 7, c.text)
+                pdf.multi_cell(0, 6, c.text)
+                pdf.ln(2)
 
         tmp = tempfile.NamedTemporaryFile(delete=False, suffix='.pdf')
         pdf.output(tmp.name)
