@@ -241,8 +241,9 @@ TYPE_PREFIX = {
 def gen_number(db: Session, doc_type: str) -> str:
     prefix = TYPE_PREFIX.get(doc_type, "ДОК")
     year = datetime.now().year
-    count = db.query(Document).filter(Document.doc_type == doc_type).with_for_update().count() + 1
-    total = db.query(Document).with_for_update().count() + 1
+    from sqlalchemy import func
+    count = db.query(func.count(Document.id)).filter(Document.doc_type == doc_type).scalar() + 1
+    total = db.query(func.count(Document.id)).scalar() + 1
     return f"{prefix}-{year}-{str(count).zfill(3)} (№{total})"
 
 
