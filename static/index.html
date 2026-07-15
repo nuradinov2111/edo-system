@@ -173,6 +173,31 @@ tr:hover td{background:var(--g50)}
 @media print{.sidebar,.top-bar,.burger,.toast-container,.modal-overlay,.bulk-bar,.filter-bar{display:none!important}.main-content{margin-left:0!important}.page-content{padding:0!important}body{background:#fff}}
 @media(max-width:1024px){.doc-detail{grid-template-columns:1fr}.grid-2,.grid-3,.grid-4{grid-template-columns:1fr}}
 @media(max-width:768px){.sidebar{transform:translateX(-100%)}.sidebar.open{transform:translateX(0)}.main-content{margin-left:0}.burger{display:block}.kanban-col{flex:0 0 240px}}
+/* AI Chat Widget */
+.ai-fab{position:fixed;bottom:24px;right:24px;width:56px;height:56px;border-radius:50%;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff;border:none;cursor:pointer;box-shadow:0 4px 16px rgba(99,102,241,.4);display:flex;align-items:center;justify-content:center;font-size:1.5rem;z-index:1000;transition:transform .2s}
+.ai-fab:hover{transform:scale(1.1)}
+.ai-panel{position:fixed;bottom:90px;right:24px;width:400px;max-height:520px;background:var(--bg);border:1px solid var(--border);border-radius:12px;box-shadow:0 8px 32px rgba(0,0,0,.15);z-index:1001;display:none;flex-direction:column;overflow:hidden}
+.ai-panel.open{display:flex}
+.ai-header{padding:.75rem 1rem;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff;display:flex;align-items:center;justify-content:space-between;font-weight:600;font-size:.875rem}
+.ai-header button{background:none;border:none;color:#fff;cursor:pointer;font-size:1.1rem}
+.ai-body{flex:1;overflow-y:auto;padding:.75rem;display:flex;flex-direction:column;gap:.5rem;min-height:250px;max-height:350px}
+.ai-msg{padding:.5rem .75rem;border-radius:10px;font-size:.8125rem;line-height:1.5;max-width:85%;word-wrap:break-word;white-space:pre-wrap}
+.ai-msg.user{background:var(--primary);color:#fff;align-self:flex-end;border-bottom-right-radius:3px}
+.ai-msg.assistant{background:var(--g100);color:var(--text);align-self:flex-start;border-bottom-left-radius:3px}
+.ai-msg.system{background:transparent;color:var(--text-secondary);align-self:center;font-size:.75rem;font-style:italic}
+.ai-footer{padding:.5rem;border-top:1px solid var(--border);display:flex;gap:.375rem}
+.ai-footer input{flex:1;padding:.5rem .75rem;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-size:.8125rem}
+.ai-footer button{padding:.5rem .75rem;border:none;border-radius:8px;background:var(--primary);color:#fff;cursor:pointer;font-size:.8125rem;white-space:nowrap}
+.ai-footer button:disabled{opacity:.5;cursor:not-allowed}
+.ai-actions{padding:.375rem .75rem;display:flex;gap:.25rem;flex-wrap:wrap;border-bottom:1px solid var(--border)}
+.ai-actions button{padding:.25rem .5rem;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);cursor:pointer;font-size:.7rem;transition:background .15s}
+.ai-actions button:hover{background:var(--g100)}
+.ai-typing{display:flex;gap:4px;padding:8px 12px;align-self:flex-start}
+.ai-typing span{width:6px;height:6px;border-radius:50%;background:var(--text-secondary);animation:aiBounce .6s infinite alternate}
+.ai-typing span:nth-child(2){animation-delay:.2s}
+.ai-typing span:nth-child(3){animation-delay:.4s}
+@keyframes aiBounce{to{transform:translateY(-6px);opacity:.4}}
+@media(max-width:480px){.ai-panel{width:calc(100vw - 16px);right:8px;bottom:80px}}
 </style>
 </head>
 <body>
@@ -319,9 +344,9 @@ async function doLogin(e){e.preventDefault();var errEl=document.getElementById('
 
 async function doRegister(e){e.preventDefault();var errEl=document.getElementById('authError');errEl.classList.add('hidden');try{var data=await api('/api/register',{method:'POST',body:{login:document.getElementById('regLogin').value,name:document.getElementById('regName').value,password:document.getElementById('regPass').value,department:document.getElementById('regDept').value||'',position:document.getElementById('regPos').value||''}});localStorage.setItem('edo-token',data.access_token);currentUser=data.user;enterApp()}catch(err){errEl.textContent=err.message;errEl.classList.remove('hidden')}return false}
 
-function doLogout(){localStorage.removeItem('edo-token');currentUser=null;documents=[];allUsers=[];allTags=[];notifications=[];allRoutes=[];document.getElementById('authPage').classList.remove('hidden');document.getElementById('appWrap').classList.add('hidden')}
+function doLogout(){localStorage.removeItem('edo-token');currentUser=null;documents=[];allUsers=[];allTags=[];notifications=[];allRoutes=[];document.getElementById('authPage').classList.remove('hidden');document.getElementById('appWrap').classList.add('hidden');document.getElementById('aiFab').style.display='none';document.getElementById('aiPanel').classList.remove('open');aiHistory=[];aiCurrentDocId=null}
 
-async function enterApp(){document.getElementById('authPage').classList.add('hidden');document.getElementById('appWrap').classList.remove('hidden');updateUserUI();await Promise.all([loadDocs(),loadUsers(),loadTags(),loadNotifs(),loadRoutes(),loadTasks()]);showPage(currentUser&&currentUser.role==='admin'?'dashboard':'documents')}
+async function enterApp(){document.getElementById('authPage').classList.add('hidden');document.getElementById('appWrap').classList.remove('hidden');document.getElementById('aiFab').style.display='flex';updateUserUI();await Promise.all([loadDocs(),loadUsers(),loadTags(),loadNotifs(),loadRoutes(),loadTasks()]);showPage(currentUser&&currentUser.role==='admin'?'dashboard':'documents')}
 
 function updateUserUI(){if(!currentUser)return;document.getElementById('userName').textContent=currentUser.name;document.getElementById('userRole').textContent=currentUser.role==='admin'?'Администратор':'Сотрудник';var av=document.getElementById('userAvatar');av.textContent=currentUser.name.charAt(0).toUpperCase();av.style.background=currentUser.color||'#2563eb';document.querySelectorAll('.admin-only').forEach(function(el){el.classList.toggle('hidden',currentUser.role!=='admin')})}
 
@@ -334,7 +359,7 @@ async function loadTasks(){try{allTasks=await api('/api/tasks');var myPending=al
 async function loadTrash(){try{trashDocs=await api('/api/documents/trash')}catch(e){trashDocs=[]}}
 function updateApprovalBadge(){var count=documents.filter(function(d){return canUserApprove(d)}).length;var badge=document.getElementById('approvalBadge');if(count>0){badge.textContent=count;badge.classList.remove('hidden')}else{badge.classList.add('hidden')}}
 
-function showPage(name,param){var adminPages=['dashboard','kanban','calendar','analytics','archive','trash','users','settings'];if(currentUser&&currentUser.role!=='admin'&&adminPages.indexOf(name)>=0){name='documents'}currentPage=name;currentPageParam=param;selectedIds.clear();sortCol='';sortDir=1;document.querySelectorAll('.nav-item').forEach(function(n){n.classList.toggle('active',n.dataset.page===name)});if(window.innerWidth<768)document.getElementById('sidebar').classList.remove('open');var pc=document.getElementById('pageContent');switch(name){case'dashboard':renderDashboard(pc);break;case'documents':renderDocuments(pc);break;case'create':renderCreateEdit(pc,param);break;case'detail':renderDetail(pc,param);break;case'approvals':renderApprovals(pc);break;case'kanban':renderKanban(pc);break;case'calendar':renderCalendar(pc);break;case'analytics':renderAnalytics(pc);break;case'archive':renderArchive(pc);break;case'notifications':renderNotifications(pc);break;case'users':renderUsers(pc);break;case'settings':renderSettings(pc);break;case'templates':renderTemplates(pc);break;case'tasks':renderTasks(pc);break;case'trash':renderTrash(pc);break;default:pc.innerHTML='<p>\u0421\u0442\u0440\u0430\u043d\u0438\u0446\u0430 \u043d\u0435 \u043d\u0430\u0439\u0434\u0435\u043d\u0430</p>'}}
+function showPage(name,param){var adminPages=['dashboard','kanban','calendar','analytics','archive','trash','users','settings'];if(currentUser&&currentUser.role!=='admin'&&adminPages.indexOf(name)>=0){name='documents'}currentPage=name;currentPageParam=param;selectedIds.clear();sortCol='';sortDir=1;if(name!=='detail')aiSetDoc(null);document.querySelectorAll('.nav-item').forEach(function(n){n.classList.toggle('active',n.dataset.page===name)});if(window.innerWidth<768)document.getElementById('sidebar').classList.remove('open');var pc=document.getElementById('pageContent');switch(name){case'dashboard':renderDashboard(pc);break;case'documents':renderDocuments(pc);break;case'create':renderCreateEdit(pc,param);break;case'detail':renderDetail(pc,param);break;case'approvals':renderApprovals(pc);break;case'kanban':renderKanban(pc);break;case'calendar':renderCalendar(pc);break;case'analytics':renderAnalytics(pc);break;case'archive':renderArchive(pc);break;case'notifications':renderNotifications(pc);break;case'users':renderUsers(pc);break;case'settings':renderSettings(pc);break;case'templates':renderTemplates(pc);break;case'tasks':renderTasks(pc);break;case'trash':renderTrash(pc);break;default:pc.innerHTML='<p>\u0421\u0442\u0440\u0430\u043d\u0438\u0446\u0430 \u043d\u0435 \u043d\u0430\u0439\u0434\u0435\u043d\u0430</p>'}}
 
 function toggleSidebar(){document.getElementById('sidebar').classList.toggle('open')}
 function toggleTheme(){var t=document.documentElement.getAttribute('data-theme')==='dark'?'light':'dark';document.documentElement.setAttribute('data-theme',t);localStorage.setItem('edo-theme',t)}
@@ -419,6 +444,7 @@ function applyRoute(routeId){if(!routeId)return;var route=allRoutes.find(functio
 async function saveDoc(e,docId){e.preventDefault();var tagIds=[];document.querySelectorAll('#tagsToggle input:checked').forEach(function(c){tagIds.push(parseInt(c.value))});var relSel=document.getElementById('dfRelated');var relIds=[];if(relSel)for(var i=0;i<relSel.selectedOptions.length;i++)relIds.push(parseInt(relSel.selectedOptions[i].value));var appIds=[];document.querySelectorAll('#approversGrid input[name="approver"]:checked').forEach(function(c){appIds.push(parseInt(c.value))});var seqEl=document.getElementById('dfSequential');var extraFields={};var efDefs=EXTRA_FIELDS[document.getElementById('dfType').value]||[];efDefs.forEach(function(f){var el=document.getElementById('ef_'+f.key);if(el)extraFields[f.key]=el.value});var body={title:document.getElementById('dfTitle').value,doc_type:document.getElementById('dfType').value,extra_fields:extraFields,status:document.getElementById('dfStatus').value,deadline:document.getElementById('dfDeadline').value||null,priority:document.getElementById('dfPriority').value,description:document.getElementById('dfDesc').value,content:document.getElementById('dfContent').value,tag_ids:tagIds,related_doc_ids:relIds,attachments:pendingAttachments,sequential:seqEl?seqEl.checked:false,approver_ids:appIds};try{if(docId){await api('/api/documents/'+docId,{method:'PUT',body:body});toast('\u0414\u043e\u043a\u0443\u043c\u0435\u043d\u0442 \u043e\u0431\u043d\u043e\u0432\u043b\u0451\u043d','success')}else{var created=await api('/api/documents',{method:'POST',body:body});toast('\u0414\u043e\u043a\u0443\u043c\u0435\u043d\u0442 \u0441\u043e\u0437\u0434\u0430\u043d','success');docId=created.id}for(var fi=0;fi<pendingAttachments.length;fi++){if(pendingAttachments[fi].file){var fd=new FormData();fd.append('file',pendingAttachments[fi].file);try{await api('/api/documents/'+docId+'/upload',{method:'POST',body:fd})}catch(ue){toast('\u041e\u0448\u0438\u0431\u043a\u0430 \u0437\u0430\u0433\u0440\u0443\u0437\u043a\u0438: '+pendingAttachments[fi].name,'error')}}}await loadDocs();await loadNotifs();showPage('detail',docId)}catch(err){toast(err.message,'error')}return false}
 
 function renderDetail(el,docId){
+  aiSetDoc(docId);
   var doc=documents.find(function(d){return d.id===docId});
   if(!doc){el.innerHTML='<p>Документ не найден. <a href="#" onclick="event.preventDefault();showPage(\'documents\')">Назад</a></p>';return}
   var prog=getApprovalProgress(doc),canA=canUserApprove(doc),isAuth=doc.author_id===currentUser.id,isAdm=currentUser.role==='admin';
@@ -573,6 +599,120 @@ async function permanentDeleteDoc(id){if(!confirm('\u041e\u043a\u043e\u043d\u044
 
 window.onload=async function(){var st=localStorage.getItem('edo-theme');if(st)document.documentElement.setAttribute('data-theme',st);var token=localStorage.getItem('edo-token');if(token){try{currentUser=await api('/api/me');enterApp()}catch(e){document.getElementById('authPage').classList.remove('hidden');document.getElementById('appWrap').classList.add('hidden')}}else{document.getElementById('authPage').classList.remove('hidden');document.getElementById('appWrap').classList.add('hidden')}};
 document.addEventListener('click',function(e){var sb=document.getElementById('sidebar');if(window.innerWidth<768&&sb.classList.contains('open')&&!sb.contains(e.target)&&!e.target.classList.contains('burger'))sb.classList.remove('open')});
+// ============ AI ASSISTANT ============
+var aiHistory=[];
+var aiCurrentDocId=null;
+
+function toggleAI(){
+  var p=document.getElementById('aiPanel');
+  p.classList.toggle('open');
+  if(p.classList.contains('open')&&aiHistory.length===0){
+    aiAddMsg('system','ИИ-помощник ЭДО. Задайте вопрос, попросите суммаризировать документ или сгенерировать текст.');
+  }
+}
+
+function aiAddMsg(role,text){
+  aiHistory.push({role:role,content:text});
+  aiRender();
+}
+
+function aiRender(){
+  var body=document.getElementById('aiBody');
+  body.innerHTML=aiHistory.map(function(m){
+    return '<div class="ai-msg '+m.role+'">'+esc(m.content)+'</div>';
+  }).join('');
+  body.scrollTop=body.scrollHeight;
+}
+
+function aiShowTyping(){
+  var body=document.getElementById('aiBody');
+  body.innerHTML+=('<div class="ai-typing" id="aiTyping"><span></span><span></span><span></span></div>');
+  body.scrollTop=body.scrollHeight;
+}
+
+function aiHideTyping(){
+  var t=document.getElementById('aiTyping');
+  if(t)t.remove();
+}
+
+async function aiSend(){
+  var inp=document.getElementById('aiInput');
+  var msg=inp.value.trim();
+  if(!msg)return;
+  inp.value='';
+  aiAddMsg('user',msg);
+  aiShowTyping();
+  var sendBtn=document.getElementById('aiSendBtn');
+  sendBtn.disabled=true;
+  try{
+    var chatHistory=aiHistory.filter(function(m){return m.role==='user'||m.role==='assistant'});
+    var res=await api('/api/ai/chat',{method:'POST',body:{message:msg,doc_id:aiCurrentDocId,history:chatHistory.slice(-10)}});
+    aiHideTyping();
+    aiAddMsg('assistant',res.reply);
+  }catch(e){
+    aiHideTyping();
+    aiAddMsg('system','Ошибка: '+(e.message||'Не удалось получить ответ'));
+  }
+  sendBtn.disabled=false;
+  inp.focus();
+}
+
+async function aiSummarize(){
+  if(!aiCurrentDocId){toast('Откройте документ для суммаризации','error');return}
+  aiAddMsg('user','Суммаризируй текущий документ');
+  aiShowTyping();
+  try{
+    var res=await api('/api/ai/summarize',{method:'POST',body:{doc_id:aiCurrentDocId}});
+    aiHideTyping();
+    aiAddMsg('assistant',res.summary);
+  }catch(e){
+    aiHideTyping();
+    aiAddMsg('system','Ошибка: '+(e.message||'Не удалось суммаризировать'));
+  }
+}
+
+async function aiGenerate(){
+  var prompt=window.prompt('Опишите какой документ нужно сгенерировать:');
+  if(!prompt)return;
+  aiAddMsg('user','Сгенерируй: '+prompt);
+  aiShowTyping();
+  try{
+    var res=await api('/api/ai/generate',{method:'POST',body:{prompt:prompt,doc_type:'memo'}});
+    aiHideTyping();
+    aiAddMsg('assistant',res.content);
+  }catch(e){
+    aiHideTyping();
+    aiAddMsg('system','Ошибка: '+(e.message||'Не удалось сгенерировать'));
+  }
+}
+
+function aiClear(){aiHistory=[];aiCurrentDocId=null;aiRender();aiAddMsg('system','История очищена. Задайте новый вопрос.')}
+
+function aiSetDoc(docId){aiCurrentDocId=docId}
+
+</script>
+
+<!-- AI Chat Widget -->
+<button class="ai-fab" onclick="toggleAI()" title="ИИ помощник" id="aiFab" style="display:none">&#129302;</button>
+<div class="ai-panel" id="aiPanel">
+  <div class="ai-header">
+    <span>&#129302; ИИ-помощник ЭДО</span>
+    <div><button onclick="aiClear()" title="Очистить">&#128465;</button> <button onclick="toggleAI()" title="Закрыть">&#10005;</button></div>
+  </div>
+  <div class="ai-actions">
+    <button onclick="aiSummarize()">&#128203; Суммаризация</button>
+    <button onclick="aiGenerate()">&#9998; Генерация</button>
+    <button onclick="aiSend2('Какие документы мне нужно согласовать?')">&#128196; Мои задачи</button>
+    <button onclick="aiSend2('Помоги составить служебную записку')">&#128221; Шаблон</button>
+  </div>
+  <div class="ai-body" id="aiBody"></div>
+  <div class="ai-footer">
+    <input type="text" id="aiInput" placeholder="Спросите ИИ..." onkeydown="if(event.key==='Enter')aiSend()">
+    <button id="aiSendBtn" onclick="aiSend()">&#10148;</button>
+  </div>
+</div>
+<script>
+function aiSend2(msg){document.getElementById('aiInput').value=msg;aiSend()}
 </script>
 </body>
 </html>

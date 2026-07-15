@@ -1225,6 +1225,134 @@ async def import_document(
     return doc_to_out(load_doc(db, doc.id))
 
 
+# ============ AI ASSISTANT ============
+
+ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
+
+_ai_client = None
+def get_ai_client():
+    global _ai_client
+    if _ai_client is None:
+        import anthropic
+        _ai_client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+    return _ai_client
+
+AI_SYSTEM_PROMPT = """Ты — ИИ-помощник системы электронного документооборота (ЭДО).
+Ты помогаешь пользователям:
+- Суммаризировать документы (краткое содержание)
+- Генерировать тексты документов по запросу
+- Отвечать на вопросы о документообороте
+- Помогать с шаблонами документов
+- Давать советы по оформлению
+
+Отвечай кратко, по делу, на русском языке. Если пользователь просит создать документ — генерируй готовый текст.
+Если передан контекст документа — используй его для ответа."""
+
+
+@app.post("/api/ai/chat")
+def ai_chat(
+    request: dict,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    message = request.get("message", "").strip()
+    doc_id = request.get("doc_id")
+    history = request.get("history", [])
+
+    if not message:
+        raise HTTPException(400, "Сообщение не может быть пустым")
+
+    # Build context from document if provided
+    doc_context = ""
+    if doc_id:
+        doc = db.query(Document).filter(Document.id == doc_id).first()
+        if doc:
+            check_doc_access(doc, user, db)
+            doc_context = f"\n\nКонтекст документа:\nНазвание: {doc.title}\nТип: {DOC_TYPE_LABELS.get(doc.doc_type, doc.doc_type)}\nСтатус: {STATUS_LABELS.get(doc.status, doc.status)}\nОписание: {doc.description}\nСодержание: {doc.content[:3000]}"
+
+    system = AI_SYSTEM_PROMPT + doc_context
+
+    # Build messages from history
+    messages = []
+    for h in history[-10:]:  # last 10 messages
+        role = h.get("role", "user")
+        if role in ("user", "assistant"):
+            messages.append({"role": role, "content": h.get("content", "")})
+    messages.append({"role": "user", "content": message})
+
+    try:
+        client = get_ai_client()
+        response = client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=2000,
+            system=system,
+            messages=messages,
+        )
+        reply = response.content[0].text
+        return {"reply": reply}
+    except Exception as e:
+        raise HTTPException(500, f"Ошибка ИИ: {str(e)}")
+
+
+@app.post("/api/ai/summarize")
+def ai_summarize(
+    request: dict,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    doc_id = request.get("doc_id")
+    if not doc_id:
+        raise HTTPException(400, "doc_id обязателен")
+
+    doc = db.query(Document).filter(Document.id == doc_id).first()
+    if not doc:
+        raise HTTPException(404, "Документ не найден")
+    check_doc_access(doc, user, db)
+
+    text = f"Название: {doc.title}\nТип: {DOC_TYPE_LABELS.get(doc.doc_type, doc.doc_type)}\nОписание: {doc.description}\nСодержание:\n{doc.content[:4000]}"
+
+    try:
+        client = get_ai_client()
+        response = client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=500,
+            system="Ты суммаризатор документов. Дай краткое содержание документа в 3-5 предложениях на русском языке.",
+            messages=[{"role": "user", "content": text}],
+        )
+        return {"summary": response.content[0].text}
+    except Exception as e:
+        raise HTTPException(500, f"Ошибка ИИ: {str(e)}")
+
+
+@app.post("/api/ai/generate")
+def ai_generate(
+    request: dict,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    prompt = request.get("prompt", "").strip()
+    doc_type = request.get("doc_type", "")
+
+    if not prompt:
+        raise HTTPException(400, "Опишите что нужно сгенерировать")
+
+    type_label = DOC_TYPE_LABELS.get(doc_type, "документ")
+    system = f"""Ты генератор документов для системы ЭДО. Сгенерируй текст документа типа "{type_label}" по запросу пользователя.
+Формат: готовый текст документа, который можно сразу использовать. Без лишних пояснений."""
+
+    try:
+        client = get_ai_client()
+        response = client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=2000,
+            system=system,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        return {"content": response.content[0].text}
+    except Exception as e:
+        raise HTTPException(500, f"Ошибка ИИ: {str(e)}")
+
+
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 @app.get("/")
