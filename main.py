@@ -1142,6 +1142,87 @@ def export_pdf(doc_id: int, db: Session = Depends(get_db), user: User = Depends(
         return JSONResponse(status_code=500, content={"detail": f"PDF error: {traceback.format_exc()[-2000:]}"})
 
 
+# ============ IMPORT (PDF / DOCX) ============
+
+@app.post("/api/documents/import", response_model=DocumentOut)
+async def import_document(
+    file: UploadFile = File(...),
+    doc_type: str = Form("other"),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    filename = file.filename or "file"
+    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+    if ext not in ("pdf", "docx"):
+        raise HTTPException(400, "Поддерживаются только PDF и DOCX файлы")
+
+    content_bytes = await file.read()
+    if len(content_bytes) > 20 * 1024 * 1024:
+        raise HTTPException(400, "Файл слишком большой (макс. 20 МБ)")
+
+    title = filename.rsplit(".", 1)[0] if "." in filename else filename
+    text = ""
+
+    if ext == "docx":
+        from docx import Document as DocxDocument
+        import io
+        try:
+            dx = DocxDocument(io.BytesIO(content_bytes))
+            text = "\n".join(p.text for p in dx.paragraphs if p.text.strip())
+        except Exception:
+            raise HTTPException(400, "Не удалось прочитать DOCX файл")
+
+    elif ext == "pdf":
+        import tempfile
+        try:
+            import fitz
+            tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
+            tmp.write(content_bytes)
+            tmp.close()
+            pdf_doc = fitz.open(tmp.name)
+            pages = []
+            for page in pdf_doc:
+                pages.append(page.get_text())
+            pdf_doc.close()
+            os.unlink(tmp.name)
+            text = "\n".join(pages)
+        except ImportError:
+            raise HTTPException(500, "PDF-чтение не поддерживается на сервере")
+        except Exception:
+            raise HTTPException(400, "Не удалось прочитать PDF файл")
+
+    text = sanitize(text.strip())
+    if not text:
+        text = "(Содержимое не удалось извлечь)"
+
+    number = gen_number(db, doc_type)
+    doc = Document(
+        number=number, title=sanitize(title), description=f"Импорт из {filename}",
+        content=text, doc_type=doc_type, status="draft",
+        priority="normal", extra_fields="{}",
+        author_id=user.id,
+    )
+    db.add(doc)
+    db.flush()
+
+    # Save original file as attachment
+    doc_dir = os.path.join(UPLOAD_DIR, str(doc.id))
+    os.makedirs(doc_dir, exist_ok=True)
+    safe_name = secrets.token_hex(8) + "_" + filename
+    filepath = os.path.join(doc_dir, safe_name)
+    with open(filepath, "wb") as f:
+        f.write(content_bytes)
+    db.add(Attachment(
+        document_id=doc.id, filename=filename,
+        filepath=filepath, size=str(len(content_bytes)),
+        filesize=len(content_bytes),
+    ))
+
+    add_history(db, doc, user.name, f"Импорт из {ext.upper()}: {filename}")
+    db.commit()
+    return doc_to_out(load_doc(db, doc.id))
+
+
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 @app.get("/")
