@@ -940,6 +940,20 @@ def export_pdf(doc_id: int, db: Session = Depends(get_db), user: User = Depends(
     doc = load_doc(db, doc_id)
     d = doc_to_out(doc)
 
+    # Pre-clean all string fields
+    d.title = clean(d.title)
+    d.number = clean(d.number)
+    d.description = clean(d.description)
+    d.content = clean(d.content)
+    d.author_name = clean(d.author_name)
+    d.deadline = clean(d.deadline)
+    for a in d.approvals:
+        a.user_name = clean(a.user_name)
+        a.comment = clean(a.comment)
+    for c in d.comments:
+        c.user_name = clean(c.user_name)
+        c.text = clean(c.text)
+
     # Find DejaVu font: system paths (Linux/Render), then download
     font_path = None
     font_bold_path = None
@@ -1053,8 +1067,8 @@ def export_pdf(doc_id: int, db: Session = Depends(get_db), user: User = Depends(
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix='.pdf')
     pdf.output(tmp.name)
     tmp.close()
-    safe_title = "".join(c for c in d.title[:40] if c.isalnum() or c in ' _-').strip() or 'document'
-    return FileResponse(tmp.name, filename=f'{d.number} {safe_title}.pdf', media_type='application/pdf')
+    safe_title = "".join(ch for ch in clean(d.title)[:40] if ch.isalnum() or ch in ' _-').strip() or 'document'
+    return FileResponse(tmp.name, filename=f'{clean(d.number)} {safe_title}.pdf', media_type='application/pdf')
 
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
