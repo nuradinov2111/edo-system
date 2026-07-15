@@ -230,7 +230,8 @@ def list_tags(db: Session = Depends(get_db), user: User = Depends(get_current_us
 
 TYPE_PREFIX = {
     "contract":"ДОГ","invoice":"СЧ","order":"ПР","report":"ОТЧ","memo":"СЗ",
-    "statement":"ЗАЯ","protocol":"ПРОТ","letter":"ПИС","nda":"НДА",
+    "statement":"ЗАЯ","protocol":"ПРОТ","letter":"ПИС",
+    "incoming_letter":"ВХ","outgoing_letter":"ИСХ","nda":"НДА",
     "vacation":"ОТП","trip":"КОМ","purchase":"ЗЗ","job_desc":"ДИ",
     "act":"АКТ","regulation":"ПОЛ",
     "advance_report":"АО","payment_order":"ПП","invoice_tax":"СФ",
@@ -879,6 +880,7 @@ def delete_route(route_id: int, db: Session = Depends(get_db), user: User = Depe
 DOC_TYPE_LABELS = {
     "contract":"Договор","invoice":"Счёт на оплату","order":"Приказ","report":"Отчёт",
     "memo":"Служебная записка","statement":"Заявление","protocol":"Протокол","letter":"Письмо",
+    "incoming_letter":"Входящее письмо","outgoing_letter":"Исходящее письмо",
     "vacation":"Заявление на отпуск","trip":"Командировка","purchase":"Заявка на закупку",
     "job_desc":"Должностная инструкция","act":"Акт выполненных работ","regulation":"Положение",
     "nda":"NDA","advance_report":"Авансовый отчёт","payment_order":"Платёжное поручение",
