@@ -919,20 +919,21 @@ def export_docx(doc_id: int, db: Session = Depends(get_db), user: User = Depends
 @app.get("/api/documents/{doc_id}/export/pdf")
 def export_pdf(doc_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     from fpdf import FPDF
-    import tempfile
+    from fastapi.responses import JSONResponse
+    import tempfile, traceback
 
     def clean(text):
-        """Remove surrogates and problematic chars for PDF."""
         if not text:
             return ""
-        # Remove surrogates char by char, replace nbsp
         out = []
         for ch in str(text):
             cp = ord(ch)
             if 0xD800 <= cp <= 0xDFFF:
-                out.append('?')
+                continue
             elif cp == 0xA0:
                 out.append(' ')
+            elif cp < 0x20 and cp not in (0x0A, 0x0D, 0x09):
+                continue
             else:
                 out.append(ch)
         return ''.join(out)
@@ -940,135 +941,129 @@ def export_pdf(doc_id: int, db: Session = Depends(get_db), user: User = Depends(
     doc = load_doc(db, doc_id)
     d = doc_to_out(doc)
 
-    # Pre-clean all string fields
-    d.title = clean(d.title)
-    d.number = clean(d.number)
-    d.description = clean(d.description)
-    d.content = clean(d.content)
-    d.author_name = clean(d.author_name)
-    d.deadline = clean(d.deadline)
-    for a in d.approvals:
-        a.user_name = clean(a.user_name)
-        a.comment = clean(a.comment)
-    for c in d.comments:
-        c.user_name = clean(c.user_name)
-        c.text = clean(c.text)
-
-    # Find DejaVu font: system paths (Linux/Render), then download
-    font_path = None
-    font_bold_path = None
-    search_paths = [
-        "/usr/share/fonts/truetype/dejavu",
-        "/usr/share/fonts/dejavu",
-        "/usr/share/fonts/TTF",
-    ]
-    for sp in search_paths:
-        fp = os.path.join(sp, "DejaVuSans.ttf")
-        fb = os.path.join(sp, "DejaVuSans-Bold.ttf")
-        if os.path.exists(fp):
-            font_path, font_bold_path = fp, fb
-            break
-
-    if not font_path:
-        font_dir = os.path.join(os.path.dirname(__file__), "fonts")
-        os.makedirs(font_dir, exist_ok=True)
-        fp = os.path.join(font_dir, "DejaVuSans.ttf")
-        fb = os.path.join(font_dir, "DejaVuSans-Bold.ttf")
-        if not os.path.exists(fp):
-            try:
-                import urllib.request
-                base = "https://raw.githubusercontent.com/dejavu-fonts/dejavu-fonts/master/ttf/"
-                urllib.request.urlretrieve(base + "DejaVuSans.ttf", fp)
-                urllib.request.urlretrieve(base + "DejaVuSans-Bold.ttf", fb)
-            except Exception:
-                pass
-        if os.path.exists(fp):
-            font_path, font_bold_path = fp, fb
-
-    pdf = FPDF()
-    pdf.add_page()
-    if font_path and os.path.exists(font_path):
-        pdf.add_font('DejaVu', '', font_path)
-        if font_bold_path and os.path.exists(font_bold_path):
-            pdf.add_font('DejaVu', 'B', font_bold_path)
-        else:
-            pdf.add_font('DejaVu', 'B', font_path)
-        font_name = 'DejaVu'
-    else:
-        font_name = 'Helvetica'
-    pdf.set_auto_page_break(auto=True, margin=15)
-
-    # Title
-    pdf.set_font(font_name, 'B', 16)
-    pdf.multi_cell(0, 10, clean(d.title), align='C')
-    pdf.ln(5)
-
-    # Meta
-    def add_field(label, value):
-        pdf.set_font(font_name, 'B', 10)
-        pdf.cell(40, 7, f'{label}:', ln=0)
-        pdf.set_font(font_name, '', 10)
-        pdf.cell(0, 7, clean(str(value)), ln=1)
-
-    add_field('Номер', d.number)
-    add_field('Тип', DOC_TYPE_LABELS.get(d.doc_type, d.doc_type))
-    add_field('Статус', STATUS_LABELS.get(d.status, d.status))
-    add_field('Приоритет', PRIORITY_LABELS.get(d.priority, d.priority))
-    add_field('Автор', d.author_name)
-    add_field('Дедлайн', d.deadline or '—')
-    add_field('Создан', d.created_at.strftime('%d.%m.%Y %H:%M') if d.created_at else '')
-
-    if d.description:
-        pdf.ln(3)
-        add_field('Описание', d.description)
-
-    # Extra fields
-    if d.extra_fields:
-        pdf.ln(5)
-        pdf.set_font(font_name, 'B', 12)
-        pdf.cell(0, 8, 'Дополнительные поля', ln=1)
-        for k, v in d.extra_fields.items():
-            if v:
-                add_field(clean(k), clean(str(v)))
-
-    # Content
-    pdf.ln(5)
-    pdf.set_font(font_name, 'B', 12)
-    pdf.cell(0, 8, 'Содержание', ln=1)
-    pdf.set_font(font_name, '', 10)
-    pdf.multi_cell(0, 6, clean(d.content or ''))
-
-    # Approvals
-    if d.approvals:
-        pdf.ln(5)
-        pdf.set_font(font_name, 'B', 12)
-        pdf.cell(0, 8, 'Согласование', ln=1)
+    try:
+        # Pre-clean all string fields
+        d.title = clean(d.title)
+        d.number = clean(d.number)
+        d.description = clean(d.description)
+        d.content = clean(d.content)
+        d.author_name = clean(d.author_name)
+        d.deadline = clean(d.deadline)
         for a in d.approvals:
-            pdf.set_font(font_name, 'B', 10)
-            pdf.cell(50, 7, clean(a.user_name) + ':', ln=0)
-            pdf.set_font(font_name, '', 10)
-            status_text = STATUS_LABELS.get(a.status, a.status)
-            line = status_text
-            if a.comment:
-                line += f' — {clean(a.comment)}'
-            pdf.cell(0, 7, clean(line), ln=1)
+            a.user_name = clean(a.user_name)
+            a.comment = clean(a.comment)
+        for c in d.comments:
+            c.user_name = clean(c.user_name)
+            c.text = clean(c.text)
+        if d.extra_fields:
+            d.extra_fields = {clean(str(k)): clean(str(v)) for k, v in d.extra_fields.items()}
 
-    # Comments
-    if d.comments:
+        # Find DejaVu font
+        font_path = font_bold_path = None
+        for sp in ["/usr/share/fonts/truetype/dejavu", "/usr/share/fonts/dejavu", "/usr/share/fonts/TTF"]:
+            fp = os.path.join(sp, "DejaVuSans.ttf")
+            fb = os.path.join(sp, "DejaVuSans-Bold.ttf")
+            if os.path.exists(fp):
+                font_path, font_bold_path = fp, fb
+                break
+        if not font_path:
+            font_dir = os.path.join(os.path.dirname(__file__), "fonts")
+            os.makedirs(font_dir, exist_ok=True)
+            fp = os.path.join(font_dir, "DejaVuSans.ttf")
+            fb = os.path.join(font_dir, "DejaVuSans-Bold.ttf")
+            if not os.path.exists(fp):
+                try:
+                    import urllib.request
+                    base = "https://raw.githubusercontent.com/dejavu-fonts/dejavu-fonts/master/ttf/"
+                    urllib.request.urlretrieve(base + "DejaVuSans.ttf", fp)
+                    urllib.request.urlretrieve(base + "DejaVuSans-Bold.ttf", fb)
+                except Exception:
+                    pass
+            if os.path.exists(fp):
+                font_path, font_bold_path = fp, fb
+
+        pdf = FPDF()
+        pdf.add_page()
+        if font_path and os.path.exists(font_path):
+            pdf.add_font('DejaVu', '', font_path)
+            pdf.add_font('DejaVu', 'B', font_bold_path if font_bold_path and os.path.exists(font_bold_path) else font_path)
+            font_name = 'DejaVu'
+        else:
+            font_name = 'Helvetica'
+        pdf.set_auto_page_break(auto=True, margin=15)
+
+        # Title
+        pdf.set_font(font_name, 'B', 16)
+        pdf.multi_cell(0, 10, d.title, align='C')
+        pdf.ln(5)
+
+        # Meta
+        def add_field(label, value):
+            pdf.set_font(font_name, 'B', 10)
+            pdf.cell(40, 7, f'{label}:', ln=0)
+            pdf.set_font(font_name, '', 10)
+            pdf.cell(0, 7, clean(str(value)), ln=1)
+
+        add_field('Номер', d.number)
+        add_field('Тип', DOC_TYPE_LABELS.get(d.doc_type, d.doc_type))
+        add_field('Статус', STATUS_LABELS.get(d.status, d.status))
+        add_field('Приоритет', PRIORITY_LABELS.get(d.priority, d.priority))
+        add_field('Автор', d.author_name)
+        add_field('Дедлайн', d.deadline or '—')
+        add_field('Создан', d.created_at.strftime('%d.%m.%Y %H:%M') if d.created_at else '')
+
+        if d.description:
+            pdf.ln(3)
+            add_field('Описание', d.description)
+
+        # Extra fields
+        if d.extra_fields:
+            pdf.ln(5)
+            pdf.set_font(font_name, 'B', 12)
+            pdf.cell(0, 8, 'Дополнительные поля', ln=1)
+            for k, v in d.extra_fields.items():
+                if v:
+                    add_field(k, v)
+
+        # Content
         pdf.ln(5)
         pdf.set_font(font_name, 'B', 12)
-        pdf.cell(0, 8, 'Комментарии', ln=1)
-        for c in d.comments:
-            pdf.set_font(font_name, 'B', 10)
-            pdf.cell(50, 7, clean(c.user_name) + ':', ln=0)
-            pdf.set_font(font_name, '', 10)
-            pdf.multi_cell(0, 7, clean(c.text))
+        pdf.cell(0, 8, 'Содержание', ln=1)
+        pdf.set_font(font_name, '', 10)
+        pdf.multi_cell(0, 6, d.content or '')
 
-    tmp = tempfile.NamedTemporaryFile(delete=False, suffix='.pdf')
-    pdf.output(tmp.name)
-    tmp.close()
-    safe_title = "".join(ch for ch in clean(d.title)[:40] if ch.isalnum() or ch in ' _-').strip() or 'document'
-    return FileResponse(tmp.name, filename=f'{clean(d.number)} {safe_title}.pdf', media_type='application/pdf')
+        # Approvals
+        if d.approvals:
+            pdf.ln(5)
+            pdf.set_font(font_name, 'B', 12)
+            pdf.cell(0, 8, 'Согласование', ln=1)
+            for a in d.approvals:
+                pdf.set_font(font_name, 'B', 10)
+                pdf.cell(50, 7, a.user_name + ':', ln=0)
+                pdf.set_font(font_name, '', 10)
+                line = STATUS_LABELS.get(a.status, a.status)
+                if a.comment:
+                    line += f' — {a.comment}'
+                pdf.cell(0, 7, line, ln=1)
+
+        # Comments
+        if d.comments:
+            pdf.ln(5)
+            pdf.set_font(font_name, 'B', 12)
+            pdf.cell(0, 8, 'Комментарии', ln=1)
+            for c in d.comments:
+                pdf.set_font(font_name, 'B', 10)
+                pdf.cell(50, 7, c.user_name + ':', ln=0)
+                pdf.set_font(font_name, '', 10)
+                pdf.multi_cell(0, 7, c.text)
+
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix='.pdf')
+        pdf.output(tmp.name)
+        tmp.close()
+        safe_title = "".join(ch for ch in d.title[:40] if ch.isalnum() or ch in ' _-').strip() or 'document'
+        return FileResponse(tmp.name, filename=f'{d.number} {safe_title}.pdf', media_type='application/pdf')
+    except Exception:
+        return JSONResponse(status_code=500, content={"detail": f"PDF error: {traceback.format_exc()[-800:]}"})
 
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
