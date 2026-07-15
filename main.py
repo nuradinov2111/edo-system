@@ -1233,6 +1233,8 @@ _ai_client = None
 def get_ai_client():
     global _ai_client
     if _ai_client is None:
+        if not ANTHROPIC_API_KEY:
+            raise HTTPException(500, "ANTHROPIC_API_KEY не настроен на сервере")
         import anthropic
         _ai_client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
     return _ai_client
