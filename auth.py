@@ -9,7 +9,12 @@ from sqlalchemy.orm import Session
 from database import get_db
 from models import User
 
-SECRET_KEY = os.getenv("SECRET_KEY", "edo-secret-key-change-in-production-2026")
+SECRET_KEY = os.getenv("SECRET_KEY", "")
+if not SECRET_KEY:
+    import warnings
+    warnings.warn("SECRET_KEY не задан! Используется случайный ключ. Задайте SECRET_KEY в переменных окружения.", stacklevel=1)
+    import secrets as _s
+    SECRET_KEY = _s.token_hex(32)
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_DAYS = 30
 

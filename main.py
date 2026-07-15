@@ -21,6 +21,21 @@ import shutil
 import json
 
 import re
+import time
+from collections import defaultdict
+
+# Rate limiting for login
+_login_attempts: dict[str, list[float]] = defaultdict(list)
+_LOGIN_MAX_ATTEMPTS = 5
+_LOGIN_WINDOW = 300  # 5 minutes
+
+def _check_rate_limit(key: str):
+    now = time.time()
+    _login_attempts[key] = [t for t in _login_attempts[key] if now - t < _LOGIN_WINDOW]
+    if len(_login_attempts[key]) >= _LOGIN_MAX_ATTEMPTS:
+        raise HTTPException(429, "Слишком много попыток. Подождите 5 минут.")
+    _login_attempts[key].append(now)
+
 
 def sanitize(text: str) -> str:
     """Strip HTML tags to prevent stored XSS."""
@@ -30,7 +45,16 @@ def sanitize(text: str) -> str:
 UPLOAD_DIR = os.path.join(os.path.dirname(__file__), "uploads")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
-app = FastAPI(title="ЭДО API")
+from contextlib import asynccontextmanager
+
+@asynccontextmanager
+async def lifespan(application):
+    run_migrations(engine)
+    Base.metadata.create_all(bind=engine)
+    _seed_data()
+    yield
+
+app = FastAPI(title="ЭДО API", lifespan=lifespan)
 
 
 # --- Startup ---
@@ -57,10 +81,7 @@ def run_migrations(eng):
 
 
 
-@app.on_event("startup")
-def startup():
-    run_migrations(engine)
-    Base.metadata.create_all(bind=engine)
+def _seed_data():
     db = next(get_db())
     if db.query(Tag).count() == 0:
         for name, color in [("Срочно","red"),("Финансы","green"),("Кадры","blue"),("Продажи","yellow"),("Важно","purple"),("Личное","pink")]:
@@ -134,6 +155,7 @@ def register(data: UserRegister, db: Session = Depends(get_db)):
 @app.post("/api/login", response_model=Token)
 def login(data: UserLogin, db: Session = Depends(get_db)):
     login_val = data.login.strip().lower()
+    _check_rate_limit(login_val)
     user = db.query(User).filter(User.login == login_val).first()
     if not user or not verify_password(data.password, user.password_hash):
         raise HTTPException(401, "Неверный логин или пароль")
@@ -219,8 +241,8 @@ TYPE_PREFIX = {
 def gen_number(db: Session, doc_type: str) -> str:
     prefix = TYPE_PREFIX.get(doc_type, "ДОК")
     year = datetime.now().year
-    count = db.query(Document).filter(Document.doc_type == doc_type).count() + 1
-    total = db.query(Document).count() + 1
+    count = db.query(Document).filter(Document.doc_type == doc_type).with_for_update().count() + 1
+    total = db.query(Document).with_for_update().count() + 1
     return f"{prefix}-{year}-{str(count).zfill(3)} (№{total})"
 
 
@@ -322,8 +344,8 @@ def list_trash(db: Session = Depends(get_db), user: User = Depends(get_current_u
 def create_document(data: DocumentCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     number = gen_number(db, data.doc_type)
     doc = Document(
-        number=number, title=data.title, description=data.description,
-        content=data.content, doc_type=data.doc_type, status=data.status,
+        number=number, title=sanitize(data.title), description=sanitize(data.description),
+        content=sanitize(data.content), doc_type=data.doc_type, status=data.status,
         priority=data.priority, sequential=data.sequential,
         deadline=data.deadline, extra_fields=json.dumps(data.extra_fields or {}, ensure_ascii=False),
         author_id=user.id,
@@ -355,9 +377,22 @@ def create_document(data: DocumentCreate, db: Session = Depends(get_db), user: U
     return doc_to_out(load_doc(db, doc.id))
 
 
+def check_doc_access(doc: Document, user: User, db: Session):
+    """Check if user has access to document (author, approver, or admin)."""
+    if user.role == "admin":
+        return
+    if doc.author_id == user.id:
+        return
+    if any(a.user_id == user.id for a in doc.approvals):
+        return
+    raise HTTPException(403, "Нет доступа к документу")
+
+
 @app.get("/api/documents/{doc_id}", response_model=DocumentOut)
 def get_document(doc_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    return doc_to_out(load_doc(db, doc_id))
+    doc = load_doc(db, doc_id)
+    check_doc_access(doc, user, db)
+    return doc_to_out(doc)
 
 
 @app.put("/api/documents/{doc_id}", response_model=DocumentOut)
@@ -369,9 +404,9 @@ def update_document(doc_id: int, data: DocumentCreate, db: Session = Depends(get
     if doc.content != data.content or doc.title != data.title:
         db.add(Version(document_id=doc.id, title=doc.title, content=doc.content, user_name=user.name))
 
-    doc.title = data.title
-    doc.description = data.description
-    doc.content = data.content
+    doc.title = sanitize(data.title)
+    doc.description = sanitize(data.description)
+    doc.content = sanitize(data.content)
     doc.doc_type = data.doc_type
     doc.status = data.status
     doc.priority = data.priority
@@ -592,6 +627,8 @@ def resend_document(doc_id: int, db: Session = Depends(get_db), user: User = Dep
 @app.post("/api/documents/{doc_id}/archive", response_model=DocumentOut)
 def archive_document(doc_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     doc = load_doc(db, doc_id)
+    if doc.author_id != user.id and user.role != "admin":
+        raise HTTPException(403, "Нет прав")
     doc.status = "archived"
     doc.updated_at = datetime.now(timezone.utc)
     add_history(db, doc, user.name, "В архив")
@@ -666,6 +703,8 @@ def download_file(att_id: int, db: Session = Depends(get_db), user: User = Depen
     att = db.query(Attachment).filter(Attachment.id == att_id).first()
     if not att or not att.filepath or not os.path.exists(att.filepath):
         raise HTTPException(404, "Файл не найден")
+    doc = load_doc(db, att.document_id)
+    check_doc_access(doc, user, db)
     return FileResponse(att.filepath, filename=att.filename)
 
 
@@ -674,6 +713,9 @@ def delete_file(att_id: int, db: Session = Depends(get_db), user: User = Depends
     att = db.query(Attachment).filter(Attachment.id == att_id).first()
     if not att:
         raise HTTPException(404, "Файл не найден")
+    doc = db.query(Document).filter(Document.id == att.document_id).first()
+    if doc and doc.author_id != user.id and user.role != "admin":
+        raise HTTPException(403, "Нет прав на удаление файла")
     if att.filepath and os.path.exists(att.filepath):
         os.remove(att.filepath)
     db.delete(att)
@@ -741,7 +783,7 @@ def create_task(data: TaskCreate, db: Session = Depends(get_db), user: User = De
     if not assignee:
         raise HTTPException(404, "Исполнитель не найден")
     task = Task(
-        title=data.title, description=data.description,
+        title=sanitize(data.title), description=sanitize(data.description),
         document_id=data.document_id, author_id=user.id,
         assignee_id=data.assignee_id, priority=data.priority,
         deadline=data.deadline,
@@ -766,9 +808,9 @@ def update_task(task_id: int, data: TaskUpdate, db: Session = Depends(get_db), u
     if task.author_id != user.id and task.assignee_id != user.id and user.role != "admin":
         raise HTTPException(403, "Нет прав")
     if data.title is not None:
-        task.title = data.title
+        task.title = sanitize(data.title)
     if data.description is not None:
-        task.description = data.description
+        task.description = sanitize(data.description)
     if data.status is not None:
         old_status = task.status
         task.status = data.status
@@ -809,7 +851,9 @@ def list_routes(db: Session = Depends(get_db), user: User = Depends(get_current_
 
 @app.post("/api/routes", response_model=RouteOut)
 def create_route(data: RouteCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    route = ApprovalRoute(name=data.name, user_ids=",".join(str(x) for x in data.user_ids), sequential=data.sequential)
+    if user.role != "admin":
+        raise HTTPException(403, "Только админ может создавать маршруты")
+    route = ApprovalRoute(name=sanitize(data.name), user_ids=",".join(str(x) for x in data.user_ids), sequential=data.sequential)
     db.add(route)
     db.commit()
     db.refresh(route)
@@ -818,6 +862,8 @@ def create_route(data: RouteCreate, db: Session = Depends(get_db), user: User = 
 
 @app.delete("/api/routes/{route_id}")
 def delete_route(route_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    if user.role != "admin":
+        raise HTTPException(403, "Только админ может удалять маршруты")
     route = db.query(ApprovalRoute).filter(ApprovalRoute.id == route_id).first()
     if route:
         db.delete(route)
@@ -851,6 +897,7 @@ def export_docx(doc_id: int, db: Session = Depends(get_db), user: User = Depends
     import tempfile
 
     doc = load_doc(db, doc_id)
+    check_doc_access(doc, user, db)
     d = doc_to_out(doc)
 
     dx = DocxDocument()
@@ -932,8 +979,10 @@ def export_docx(doc_id: int, db: Session = Depends(get_db), user: User = Depends
     dx.save(tmp.name)
     tmp.close()
     safe_title = "".join(c for c in d.title[:40] if c.isalnum() or c in ' _-').strip() or 'document'
+    from starlette.background import BackgroundTask
     return FileResponse(tmp.name, filename=f'{d.number} {safe_title}.docx',
-                        media_type='application/vnd.openxmlformats-officedocument.wordprocessingml.document')
+                        media_type='application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                        background=BackgroundTask(os.unlink, tmp.name))
 
 
 @app.get("/api/documents/{doc_id}/export/pdf")
@@ -959,6 +1008,7 @@ def export_pdf(doc_id: int, db: Session = Depends(get_db), user: User = Depends(
         return ''.join(out)
 
     doc = load_doc(db, doc_id)
+    check_doc_access(doc, user, db)
     d = doc_to_out(doc)
 
     try:
@@ -1084,7 +1134,9 @@ def export_pdf(doc_id: int, db: Session = Depends(get_db), user: User = Depends(
         pdf.output(tmp.name)
         tmp.close()
         safe_title = "".join(ch for ch in d.title[:40] if ch.isalnum() or ch in ' _-').strip() or 'document'
-        return FileResponse(tmp.name, filename=f'{d.number} {safe_title}.pdf', media_type='application/pdf')
+        from starlette.background import BackgroundTask
+        return FileResponse(tmp.name, filename=f'{d.number} {safe_title}.pdf', media_type='application/pdf',
+                            background=BackgroundTask(os.unlink, tmp.name))
     except Exception:
         return JSONResponse(status_code=500, content={"detail": f"PDF error: {traceback.format_exc()[-2000:]}"})
 
