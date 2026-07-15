@@ -1225,19 +1225,20 @@ async def import_document(
     return doc_to_out(load_doc(db, doc.id))
 
 
-# ============ AI ASSISTANT ============
+# ============ AI ASSISTANT (Google Gemini) ============
 
-ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 
-_ai_client = None
-def get_ai_client():
-    global _ai_client
-    if _ai_client is None:
-        if not ANTHROPIC_API_KEY:
-            raise HTTPException(500, "ANTHROPIC_API_KEY не настроен на сервере")
-        import anthropic
-        _ai_client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
-    return _ai_client
+_gemini_model = None
+def get_gemini():
+    global _gemini_model
+    if _gemini_model is None:
+        if not GEMINI_API_KEY:
+            raise HTTPException(500, "GEMINI_API_KEY не настроен на сервере")
+        import google.generativeai as genai
+        genai.configure(api_key=GEMINI_API_KEY)
+        _gemini_model = genai.GenerativeModel("gemini-2.0-flash")
+    return _gemini_model
 
 AI_SYSTEM_PROMPT = """Ты — ИИ-помощник системы электронного документооборота (ЭДО).
 Ты помогаешь пользователям:
@@ -1249,6 +1250,23 @@ AI_SYSTEM_PROMPT = """Ты — ИИ-помощник системы электр
 
 Отвечай кратко, по делу, на русском языке. Если пользователь просит создать документ — генерируй готовый текст.
 Если передан контекст документа — используй его для ответа."""
+
+
+def _gemini_chat(system_prompt: str, messages: list[dict]) -> str:
+    """Send messages to Gemini and return response text."""
+    model = get_gemini()
+    # Build contents: system instruction + conversation
+    contents = []
+    for m in messages:
+        role = "user" if m["role"] == "user" else "model"
+        contents.append({"role": role, "parts": [{"text": m["content"]}]})
+
+    response = model.generate_content(
+        contents,
+        generation_config={"max_output_tokens": 2000, "temperature": 0.7},
+        system_instruction=system_prompt,
+    )
+    return response.text
 
 
 @app.post("/api/ai/chat")
@@ -1264,7 +1282,6 @@ def ai_chat(
     if not message:
         raise HTTPException(400, "Сообщение не может быть пустым")
 
-    # Build context from document if provided
     doc_context = ""
     if doc_id:
         doc = db.query(Document).filter(Document.id == doc_id).first()
@@ -1274,23 +1291,15 @@ def ai_chat(
 
     system = AI_SYSTEM_PROMPT + doc_context
 
-    # Build messages from history
-    messages = []
-    for h in history[-10:]:  # last 10 messages
+    msgs = []
+    for h in history[-10:]:
         role = h.get("role", "user")
         if role in ("user", "assistant"):
-            messages.append({"role": role, "content": h.get("content", "")})
-    messages.append({"role": "user", "content": message})
+            msgs.append({"role": role, "content": h.get("content", "")})
+    msgs.append({"role": "user", "content": message})
 
     try:
-        client = get_ai_client()
-        response = client.messages.create(
-            model="claude-sonnet-4-20250514",
-            max_tokens=2000,
-            system=system,
-            messages=messages,
-        )
-        reply = response.content[0].text
+        reply = _gemini_chat(system, msgs)
         return {"reply": reply}
     except Exception as e:
         raise HTTPException(500, f"Ошибка ИИ: {str(e)}")
@@ -1314,14 +1323,11 @@ def ai_summarize(
     text = f"Название: {doc.title}\nТип: {DOC_TYPE_LABELS.get(doc.doc_type, doc.doc_type)}\nОписание: {doc.description}\nСодержание:\n{doc.content[:4000]}"
 
     try:
-        client = get_ai_client()
-        response = client.messages.create(
-            model="claude-sonnet-4-20250514",
-            max_tokens=500,
-            system="Ты суммаризатор документов. Дай краткое содержание документа в 3-5 предложениях на русском языке.",
-            messages=[{"role": "user", "content": text}],
+        reply = _gemini_chat(
+            "Ты суммаризатор документов. Дай краткое содержание документа в 3-5 предложениях на русском языке.",
+            [{"role": "user", "content": text}],
         )
-        return {"summary": response.content[0].text}
+        return {"summary": reply}
     except Exception as e:
         raise HTTPException(500, f"Ошибка ИИ: {str(e)}")
 
@@ -1339,18 +1345,11 @@ def ai_generate(
         raise HTTPException(400, "Опишите что нужно сгенерировать")
 
     type_label = DOC_TYPE_LABELS.get(doc_type, "документ")
-    system = f"""Ты генератор документов для системы ЭДО. Сгенерируй текст документа типа "{type_label}" по запросу пользователя.
-Формат: готовый текст документа, который можно сразу использовать. Без лишних пояснений."""
+    system = f'Ты генератор документов для системы ЭДО. Сгенерируй текст документа типа "{type_label}" по запросу пользователя. Формат: готовый текст документа, который можно сразу использовать. Без лишних пояснений.'
 
     try:
-        client = get_ai_client()
-        response = client.messages.create(
-            model="claude-sonnet-4-20250514",
-            max_tokens=2000,
-            system=system,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        return {"content": response.content[0].text}
+        reply = _gemini_chat(system, [{"role": "user", "content": prompt}])
+        return {"content": reply}
     except Exception as e:
         raise HTTPException(500, f"Ошибка ИИ: {str(e)}")
 

@@ -11,4 +11,4 @@ pydantic[email-validator]
 python-docx
 fpdf2
 PyMuPDF
-anthropic
+google-generativeai
