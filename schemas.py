@@ -192,6 +192,18 @@ class TaskUpdate(BaseModel):
     priority: Optional[str] = None
     deadline: Optional[str] = None
 
+class UserOutPublic(BaseModel):
+    """Limited user info for non-admin users (no login/email)."""
+    id: int
+    name: str
+    role: str
+    department: str
+    position: str
+    color: str
+    deputy_id: Optional[int] = None
+    model_config = {"from_attributes": True}
+
+
 class TaskOut(BaseModel):
     id: int
     title: str

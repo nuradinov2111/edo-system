@@ -10,7 +10,7 @@ from models import (
     History, Version, Attachment, ApprovalRoute, doc_tags, doc_related, Task,
 )
 from schemas import (
-    UserRegister, UserLogin, UserOut, Token, UserCreate, DeputySet,
+    UserRegister, UserLogin, UserOut, UserOutPublic, Token, UserCreate, DeputySet,
     DocumentCreate, DocumentOut, ApprovalOut, CommentOut, CommentCreate,
     ApprovalAction, NotificationOut, RouteCreate, RouteOut, TagOut,
     TaskCreate, TaskUpdate, TaskOut,
@@ -19,6 +19,13 @@ from auth import hash_password, verify_password, create_token, get_current_user
 import secrets
 import shutil
 import json
+
+import re
+
+def sanitize(text: str) -> str:
+    """Strip HTML tags to prevent stored XSS."""
+    return re.sub(r'<[^>]+>', '', text).strip()
+
 
 UPLOAD_DIR = os.path.join(os.path.dirname(__file__), "uploads")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
@@ -112,9 +119,9 @@ def register(data: UserRegister, db: Session = Depends(get_db)):
         raise HTTPException(400, "Логин уже занят")
     colors = ["#2563eb","#16a34a","#d97706","#7c3aed","#db2777","#059669","#ea580c","#4f46e5"]
     user = User(
-        login=login_val, name=data.name, email=f"{login_val}@edo.local",
+        login=login_val, name=sanitize(data.name), email=f"{login_val}@edo.local",
         password_hash=hash_password(data.password),
-        department=data.department, position=data.position,
+        department=sanitize(data.department), position=sanitize(data.position),
         color=colors[db.query(User).count() % len(colors)],
     )
     db.add(user)
@@ -141,9 +148,12 @@ def me(user: User = Depends(get_current_user)):
 
 # ============ USERS ============
 
-@app.get("/api/users", response_model=list[UserOut])
+@app.get("/api/users")
 def list_users(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    return [UserOut.model_validate(u) for u in db.query(User).all()]
+    users = db.query(User).all()
+    if user.role == "admin":
+        return [UserOut.model_validate(u) for u in users]
+    return [UserOutPublic.model_validate(u) for u in users]
 
 
 @app.post("/api/users", response_model=UserOut)
@@ -157,9 +167,9 @@ def create_user(data: UserCreate, db: Session = Depends(get_db), user: User = De
         raise HTTPException(400, "Логин уже занят")
     colors = ["#2563eb","#16a34a","#d97706","#7c3aed","#db2777","#059669","#ea580c"]
     new_user = User(
-        login=login_val, name=data.name, email=f"{login_val}@edo.local",
+        login=login_val, name=sanitize(data.name), email=f"{login_val}@edo.local",
         password_hash=hash_password(data.password),
-        role=data.role, department=data.department, position=data.position,
+        role=data.role, department=sanitize(data.department), position=sanitize(data.position),
         color=colors[db.query(User).count() % len(colors)],
     )
     db.add(new_user)
@@ -279,13 +289,20 @@ def list_documents(include_deleted: bool = False, db: Session = Depends(get_db),
     )
     if not include_deleted:
         q = q.filter(Document.deleted == False)
+    if user.role != "admin":
+        q = q.filter(
+            (Document.author_id == user.id) |
+            Document.id.in_(
+                db.query(Approval.document_id).filter(Approval.user_id == user.id)
+            )
+        )
     docs = q.order_by(Document.updated_at.desc()).all()
     return [doc_to_out(d) for d in docs]
 
 
 @app.get("/api/documents/trash", response_model=list[DocumentOut])
 def list_trash(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    docs = db.query(Document).options(
+    q = db.query(Document).options(
         joinedload(Document.author_user),
         joinedload(Document.approvals).joinedload(Approval.user),
         joinedload(Document.comments).joinedload(Comment.user),
@@ -294,7 +311,10 @@ def list_trash(db: Session = Depends(get_db), user: User = Depends(get_current_u
         joinedload(Document.attachments),
         joinedload(Document.tags),
         joinedload(Document.related_docs),
-    ).filter(Document.deleted == True).order_by(Document.updated_at.desc()).all()
+    ).filter(Document.deleted == True)
+    if user.role != "admin":
+        q = q.filter(Document.author_id == user.id)
+    docs = q.order_by(Document.updated_at.desc()).all()
     return [doc_to_out(d) for d in docs]
 
 
@@ -666,7 +686,7 @@ def delete_file(att_id: int, db: Session = Depends(get_db), user: User = Depends
 @app.post("/api/documents/{doc_id}/comments", response_model=DocumentOut)
 def add_comment(doc_id: int, data: CommentCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     doc = load_doc(db, doc_id)
-    db.add(Comment(document_id=doc.id, user_id=user.id, text=data.text))
+    db.add(Comment(document_id=doc.id, user_id=user.id, text=sanitize(data.text)))
     add_history(db, doc, user.name, "Комментарий: " + data.text[:40])
     if doc.author_id != user.id:
         add_notification(db, doc.author_id, "comment", "Комментарий", f'{user.name}: "{doc.title}"', doc.id)
