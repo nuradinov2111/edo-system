@@ -1225,20 +1225,9 @@ async def import_document(
     return doc_to_out(load_doc(db, doc.id))
 
 
-# ============ AI ASSISTANT (Google Gemini) ============
+# ============ AI ASSISTANT (Groq + Llama) ============
 
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-
-_gemini_model = None
-def get_gemini():
-    global _gemini_model
-    if _gemini_model is None:
-        if not GEMINI_API_KEY:
-            raise HTTPException(500, "GEMINI_API_KEY не настроен на сервере")
-        import google.generativeai as genai
-        genai.configure(api_key=GEMINI_API_KEY)
-        _gemini_model = genai.GenerativeModel("gemini-2.0-flash")
-    return _gemini_model
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 
 AI_SYSTEM_PROMPT = """Ты — ИИ-помощник системы электронного документооборота (ЭДО).
 Ты помогаешь пользователям:
@@ -1252,27 +1241,24 @@ AI_SYSTEM_PROMPT = """Ты — ИИ-помощник системы электр
 Если передан контекст документа — используй его для ответа."""
 
 
-def _gemini_chat(system_prompt: str, messages: list[dict]) -> str:
-    """Send messages to Gemini and return response text."""
-    import google.generativeai as genai
-    if not GEMINI_API_KEY:
-        raise HTTPException(500, "GEMINI_API_KEY не настроен на сервере")
-    genai.configure(api_key=GEMINI_API_KEY)
-    model = genai.GenerativeModel(
-        "gemini-2.0-flash",
-        system_instruction=system_prompt,
-    )
-    # Build contents
-    contents = []
+def _ai_chat(system_prompt: str, messages: list[dict]) -> str:
+    """Send messages to Groq and return response text."""
+    if not GROQ_API_KEY:
+        raise HTTPException(500, "GROQ_API_KEY не настроен на сервере")
+    from groq import Groq
+    client = Groq(api_key=GROQ_API_KEY)
+    msgs = [{"role": "system", "content": system_prompt}]
     for m in messages:
-        role = "user" if m["role"] == "user" else "model"
-        contents.append({"role": role, "parts": [{"text": m["content"]}]})
-
-    response = model.generate_content(
-        contents,
-        generation_config={"max_output_tokens": 2000, "temperature": 0.7},
+        role = m.get("role", "user")
+        if role in ("user", "assistant"):
+            msgs.append({"role": role, "content": m.get("content", "")})
+    response = client.chat.completions.create(
+        model="llama-3.3-70b-versatile",
+        messages=msgs,
+        max_tokens=2000,
+        temperature=0.7,
     )
-    return response.text
+    return response.choices[0].message.content
 
 
 @app.post("/api/ai/chat")
@@ -1305,7 +1291,7 @@ def ai_chat(
     msgs.append({"role": "user", "content": message})
 
     try:
-        reply = _gemini_chat(system, msgs)
+        reply = _ai_chat(system, msgs)
         return {"reply": reply}
     except Exception as e:
         raise HTTPException(500, f"Ошибка ИИ: {str(e)}")
@@ -1329,7 +1315,7 @@ def ai_summarize(
     text = f"Название: {doc.title}\nТип: {DOC_TYPE_LABELS.get(doc.doc_type, doc.doc_type)}\nОписание: {doc.description}\nСодержание:\n{doc.content[:4000]}"
 
     try:
-        reply = _gemini_chat(
+        reply = _ai_chat(
             "Ты суммаризатор документов. Дай краткое содержание документа в 3-5 предложениях на русском языке.",
             [{"role": "user", "content": text}],
         )
@@ -1354,7 +1340,7 @@ def ai_generate(
     system = f'Ты генератор документов для системы ЭДО. Сгенерируй текст документа типа "{type_label}" по запросу пользователя. Формат: готовый текст документа, который можно сразу использовать. Без лишних пояснений.'
 
     try:
-        reply = _gemini_chat(system, [{"role": "user", "content": prompt}])
+        reply = _ai_chat(system, [{"role": "user", "content": prompt}])
         return {"content": reply}
     except Exception as e:
         raise HTTPException(500, f"Ошибка ИИ: {str(e)}")
