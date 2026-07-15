@@ -649,7 +649,7 @@ async function aiSend(){
     var res=await api('/api/ai/chat',{method:'POST',body:{message:msg,doc_id:aiCurrentDocId,history:chatHistory.slice(-10)}});
     aiHideTyping();
     aiAddMsg('assistant',res.reply);
-    if(res.action){aiExecuteAction(res.action)}
+    if(res.action){aiExecuteAction(res.action,res.fill)}else if(res.fill){aiExecuteAction({page:'create'},res.fill)}
   }catch(e){
     aiHideTyping();
     aiAddMsg('system','Ошибка: '+(e.message||'Не удалось получить ответ'));
@@ -691,18 +691,34 @@ function aiClear(){aiHistory=[];aiCurrentDocId=null;aiRender();aiAddMsg('system'
 
 function aiSetDoc(docId){aiCurrentDocId=docId}
 
-function aiExecuteAction(action){
+function aiFillForm(fill){
+  if(!fill)return;
+  var fields={title:'dfTitle',description:'dfDesc',content:'dfContent',deadline:'dfDeadline',priority:'dfPriority'};
+  Object.keys(fields).forEach(function(key){
+    if(fill[key]){
+      var el=document.getElementById(fields[key]);
+      if(el){el.value=fill[key];el.dispatchEvent(new Event('input',{bubbles:true}))}
+    }
+  });
+  toast('ИИ заполнил форму. Проверьте данные и отправьте.','success');
+}
+
+function aiExecuteAction(action,fill){
   if(!action||!action.page)return;
   var page=action.page;
   var param=action.param||null;
   // Delay navigation so user sees the AI message first
   setTimeout(function(){
-    if(page==='create'&&param){
-      // Navigate to create page and pre-select doc type
+    if(page==='create'){
       showPage('create');
       setTimeout(function(){
-        var typeSelect=document.getElementById('dfType');
-        if(typeSelect){typeSelect.value=param;typeSelect.dispatchEvent(new Event('change'))}
+        if(param){
+          var typeSelect=document.getElementById('dfType');
+          if(typeSelect){typeSelect.value=param;typeSelect.dispatchEvent(new Event('change'))}
+        }
+        if(fill){
+          setTimeout(function(){aiFillForm(fill)},100);
+        }
       },200);
     }else if(page==='detail'&&param){
       showPage('detail',parseInt(param));
