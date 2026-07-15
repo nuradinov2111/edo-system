@@ -1254,8 +1254,15 @@ AI_SYSTEM_PROMPT = """Ты — ИИ-помощник системы электр
 
 def _gemini_chat(system_prompt: str, messages: list[dict]) -> str:
     """Send messages to Gemini and return response text."""
-    model = get_gemini()
-    # Build contents: system instruction + conversation
+    import google.generativeai as genai
+    if not GEMINI_API_KEY:
+        raise HTTPException(500, "GEMINI_API_KEY не настроен на сервере")
+    genai.configure(api_key=GEMINI_API_KEY)
+    model = genai.GenerativeModel(
+        "gemini-2.0-flash",
+        system_instruction=system_prompt,
+    )
+    # Build contents
     contents = []
     for m in messages:
         role = "user" if m["role"] == "user" else "model"
@@ -1264,7 +1271,6 @@ def _gemini_chat(system_prompt: str, messages: list[dict]) -> str:
     response = model.generate_content(
         contents,
         generation_config={"max_output_tokens": 2000, "temperature": 0.7},
-        system_instruction=system_prompt,
     )
     return response.text
 
