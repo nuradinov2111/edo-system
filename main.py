@@ -1063,7 +1063,7 @@ def export_pdf(doc_id: int, db: Session = Depends(get_db), user: User = Depends(
         safe_title = "".join(ch for ch in d.title[:40] if ch.isalnum() or ch in ' _-').strip() or 'document'
         return FileResponse(tmp.name, filename=f'{d.number} {safe_title}.pdf', media_type='application/pdf')
     except Exception:
-        return JSONResponse(status_code=500, content={"detail": f"PDF error: {traceback.format_exc()[-800:]}"})
+        return JSONResponse(status_code=500, content={"detail": f"PDF error: {traceback.format_exc()[-2000:]}"})
 
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
