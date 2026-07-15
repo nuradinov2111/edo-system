@@ -1236,9 +1236,49 @@ AI_SYSTEM_PROMPT = """Ты — ИИ-помощник системы электр
 - Отвечать на вопросы о документообороте
 - Помогать с шаблонами документов
 - Давать советы по оформлению
+- Навигировать по системе
 
 Отвечай кратко, по делу, на русском языке. Если пользователь просит создать документ — генерируй готовый текст.
-Если передан контекст документа — используй его для ответа."""
+Если передан контекст документа — используй его для ответа.
+
+ВАЖНО: Когда пользователь хочет перейти куда-то или создать документ, ОБЯЗАТЕЛЬНО добавь в конец ответа тег навигации в формате [ACTION:страница:параметр].
+
+Доступные действия:
+- [ACTION:create:contract] — создать договор
+- [ACTION:create:invoice] — создать счёт на оплату
+- [ACTION:create:order] — создать приказ
+- [ACTION:create:report] — создать отчёт
+- [ACTION:create:memo] — создать служебную записку
+- [ACTION:create:protocol] — создать протокол
+- [ACTION:create:letter] — создать письмо
+- [ACTION:create:incoming_letter] — создать входящее письмо
+- [ACTION:create:outgoing_letter] — создать исходящее письмо
+- [ACTION:create:vacation] — создать заявление на отпуск
+- [ACTION:create:trip] — создать командировку
+- [ACTION:create:purchase] — создать заявку на закупку
+- [ACTION:create:act] — создать акт выполненных работ
+- [ACTION:create:statement] — создать заявление
+- [ACTION:create:advance_report] — создать авансовый отчёт
+- [ACTION:create:payment_order] — создать платёжное поручение
+- [ACTION:create:invoice_tax] — создать счёт-фактуру
+- [ACTION:create:waybill] — создать товарную накладную
+- [ACTION:create:power_of_attorney] — создать доверенность
+- [ACTION:create:cash_order] — создать кассовый ордер
+- [ACTION:documents] — перейти к списку документов
+- [ACTION:approvals] — перейти к согласованиям
+- [ACTION:templates] — перейти к шаблонам
+- [ACTION:tasks] — перейти к поручениям
+- [ACTION:notifications] — перейти к уведомлениям
+- [ACTION:archive] — перейти к архиву
+- [ACTION:analytics] — перейти к аналитике
+- [ACTION:settings] — перейти к настройкам
+
+Примеры:
+- "Хочу написать заявление на отпуск" → ответь "Сейчас направлю вас в форму создания заявления на отпуск. [ACTION:create:vacation]"
+- "Покажи мои документы" → ответь "Открываю список ваших документов. [ACTION:documents]"
+- "Где посмотреть что мне нужно согласовать?" → ответь "Перехожу в раздел согласований. [ACTION:approvals]"
+
+Всегда добавляй тег [ACTION:...] когда пользователь явно или неявно хочет перейти куда-то или создать документ."""
 
 
 def _ai_chat(system_prompt: str, messages: list[dict]) -> str:
@@ -1292,7 +1332,16 @@ def ai_chat(
 
     try:
         reply = _ai_chat(system, msgs)
-        return {"reply": reply}
+        # Parse ACTION tags
+        action = None
+        action_match = re.search(r'\[ACTION:([^\]]+)\]', reply)
+        if action_match:
+            parts = action_match.group(1).split(":")
+            reply = re.sub(r'\s*\[ACTION:[^\]]+\]', '', reply).strip()
+            action = {"page": parts[0]}
+            if len(parts) > 1:
+                action["param"] = parts[1]
+        return {"reply": reply, "action": action}
     except Exception as e:
         raise HTTPException(500, f"Ошибка ИИ: {str(e)}")
 

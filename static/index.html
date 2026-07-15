@@ -649,6 +649,7 @@ async function aiSend(){
     var res=await api('/api/ai/chat',{method:'POST',body:{message:msg,doc_id:aiCurrentDocId,history:chatHistory.slice(-10)}});
     aiHideTyping();
     aiAddMsg('assistant',res.reply);
+    if(res.action){aiExecuteAction(res.action)}
   }catch(e){
     aiHideTyping();
     aiAddMsg('system','Ошибка: '+(e.message||'Не удалось получить ответ'));
@@ -689,6 +690,27 @@ async function aiGenerate(){
 function aiClear(){aiHistory=[];aiCurrentDocId=null;aiRender();aiAddMsg('system','История очищена. Задайте новый вопрос.')}
 
 function aiSetDoc(docId){aiCurrentDocId=docId}
+
+function aiExecuteAction(action){
+  if(!action||!action.page)return;
+  var page=action.page;
+  var param=action.param||null;
+  // Delay navigation so user sees the AI message first
+  setTimeout(function(){
+    if(page==='create'&&param){
+      // Navigate to create page and pre-select doc type
+      showPage('create');
+      setTimeout(function(){
+        var typeSelect=document.getElementById('dfType');
+        if(typeSelect){typeSelect.value=param;typeSelect.dispatchEvent(new Event('change'))}
+      },200);
+    }else if(page==='detail'&&param){
+      showPage('detail',parseInt(param));
+    }else{
+      showPage(page);
+    }
+  },1500);
+}
 
 </script>
 
