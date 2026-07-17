@@ -7,13 +7,13 @@ from sqlalchemy.orm import Session, joinedload
 from database import engine, get_db, Base
 from models import (
     User, Document, Tag, Approval, Comment, Notification,
-    History, Version, Attachment, ApprovalRoute, doc_tags, doc_related, Task,
+    History, Version, Attachment, ApprovalRoute, doc_tags, doc_related, Task, Resolution,
 )
 from schemas import (
     UserRegister, UserLogin, UserOut, UserOutPublic, Token, UserCreate, DeputySet,
     DocumentCreate, DocumentOut, ApprovalOut, CommentOut, CommentCreate,
     ApprovalAction, NotificationOut, RouteCreate, RouteOut, TagOut,
-    TaskCreate, TaskUpdate, TaskOut,
+    TaskCreate, TaskUpdate, TaskOut, ResolutionOut, ResolutionCreate,
 )
 from auth import hash_password, verify_password, create_token, get_current_user
 import secrets
@@ -46,13 +46,27 @@ UPLOAD_DIR = os.path.join(os.path.dirname(__file__), "uploads")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 from contextlib import asynccontextmanager
+import asyncio
+
+async def _auto_approve_loop():
+    """Background task: check overdue approvals every 30 minutes."""
+    while True:
+        await asyncio.sleep(1800)  # 30 min
+        try:
+            db = next(get_db())
+            _process_auto_approvals(db)
+            db.close()
+        except Exception:
+            pass
 
 @asynccontextmanager
 async def lifespan(application):
     run_migrations(engine)
     Base.metadata.create_all(bind=engine)
     _seed_data()
+    task = asyncio.create_task(_auto_approve_loop())
     yield
+    task.cancel()
 
 app = FastAPI(title="ЭДО API", lifespan=lifespan)
 
@@ -69,6 +83,7 @@ def run_migrations(eng):
             ("documents", "deleted", "BOOLEAN DEFAULT FALSE"),
             ("users", "deputy_id", "INTEGER"),
             ("users", "login", "VARCHAR(20)"),
+            ("users", "auto_approve_hours", "INTEGER DEFAULT 0"),
             ("attachments", "filepath", "VARCHAR(1000) DEFAULT ''"),
             ("attachments", "filesize", "INTEGER DEFAULT 0"),
         ]
@@ -272,6 +287,11 @@ def doc_to_out(doc: Document) -> DocumentOut:
         attachments=[{"id": att.id, "filename": att.filename, "filepath": att.filepath or "", "size": att.size, "filesize": att.filesize or 0} for att in doc.attachments],
         tags=[TagOut.model_validate(t) for t in doc.tags],
         related_doc_ids=[r.id for r in doc.related_docs],
+        resolution=ResolutionOut(
+            id=doc.resolution.id, user_id=doc.resolution.user_id,
+            user_name=doc.resolution.user.name if doc.resolution.user else "",
+            text=doc.resolution.text, created_at=doc.resolution.created_at
+        ) if doc.resolution else None,
     )
 
 
@@ -285,6 +305,7 @@ def load_doc(db: Session, doc_id: int) -> Document:
         joinedload(Document.attachments),
         joinedload(Document.tags),
         joinedload(Document.related_docs),
+        joinedload(Document.resolution).joinedload(Resolution.user),
     ).filter(Document.id == doc_id).first()
     if not doc:
         raise HTTPException(404, "Документ не найден")
@@ -310,6 +331,7 @@ def list_documents(include_deleted: bool = False, db: Session = Depends(get_db),
         joinedload(Document.attachments),
         joinedload(Document.tags),
         joinedload(Document.related_docs),
+        joinedload(Document.resolution).joinedload(Resolution.user),
     )
     if not include_deleted:
         q = q.filter(Document.deleted == False)
@@ -335,6 +357,7 @@ def list_trash(db: Session = Depends(get_db), user: User = Depends(get_current_u
         joinedload(Document.attachments),
         joinedload(Document.tags),
         joinedload(Document.related_docs),
+        joinedload(Document.resolution).joinedload(Resolution.user),
     ).filter(Document.deleted == True)
     if user.role != "admin":
         q = q.filter(Document.author_id == user.id)
@@ -844,6 +867,272 @@ def delete_task(task_id: int, db: Session = Depends(get_db), user: User = Depend
     return {"ok": True}
 
 
+# ============ DASHBOARD ============
+
+@app.get("/api/dashboard")
+def get_dashboard(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    from sqlalchemy import func
+
+    # All docs visible to user
+    q = db.query(Document).filter(Document.deleted == False)
+    if user.role != "admin":
+        q = q.filter(
+            (Document.author_id == user.id) |
+            Document.id.in_(db.query(Approval.document_id).filter(Approval.user_id == user.id))
+        )
+    docs = q.all()
+
+    total = len(docs)
+    by_status = {}
+    for d in docs:
+        by_status[d.status] = by_status.get(d.status, 0) + 1
+    by_type = {}
+    for d in docs:
+        by_type[d.doc_type] = by_type.get(d.doc_type, 0) + 1
+
+    # Pending approvals for this user
+    pending_approvals = []
+    for d in docs:
+        if d.status == "pending":
+            for a in d.approvals:
+                if a.user_id == user.id and a.status == "pending":
+                    pending_approvals.append({"doc_id": d.id, "title": d.title, "author": d.author_user.name if d.author_user else "", "created_at": str(d.created_at)})
+                    break
+
+    # Overdue docs
+    now = datetime.now(timezone.utc)
+    overdue = []
+    for d in docs:
+        if d.deadline and d.status not in ("archived", "approved", "resolved"):
+            try:
+                dl = datetime.fromisoformat(d.deadline.replace("Z", "+00:00")) if "T" in d.deadline else datetime.strptime(d.deadline[:10], "%Y-%m-%d").replace(tzinfo=timezone.utc)
+                if dl < now:
+                    overdue.append({"doc_id": d.id, "title": d.title, "deadline": d.deadline})
+            except (ValueError, TypeError):
+                pass
+
+    # Recent docs
+    recent = sorted(docs, key=lambda x: x.created_at or datetime.min.replace(tzinfo=timezone.utc), reverse=True)[:5]
+    recent_out = [{"id": d.id, "number": d.number, "title": d.title, "status": d.status, "created_at": str(d.created_at)} for d in recent]
+
+    # My tasks
+    my_tasks = db.query(Task).filter(
+        Task.assignee_id == user.id, Task.status.in_(["pending", "in_progress"])
+    ).order_by(Task.created_at.desc()).limit(5).all()
+    tasks_out = [{"id": t.id, "title": t.title, "status": t.status, "deadline": t.deadline, "priority": t.priority} for t in my_tasks]
+
+    return {
+        "total": total,
+        "by_status": by_status,
+        "by_type": by_type,
+        "pending_approvals": pending_approvals,
+        "overdue": overdue,
+        "recent": recent_out,
+        "my_tasks": tasks_out,
+    }
+
+
+# ============ SEARCH ============
+
+@app.get("/api/documents/search")
+def search_documents(
+    q: str = "",
+    doc_type: str = "",
+    status: str = "",
+    author_id: int = 0,
+    date_from: str = "",
+    date_to: str = "",
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    query = db.query(Document).options(
+        joinedload(Document.author_user),
+        joinedload(Document.approvals).joinedload(Approval.user),
+        joinedload(Document.tags),
+        joinedload(Document.resolution).joinedload(Resolution.user),
+    ).filter(Document.deleted == False)
+
+    if user.role != "admin":
+        query = query.filter(
+            (Document.author_id == user.id) |
+            Document.id.in_(db.query(Approval.document_id).filter(Approval.user_id == user.id))
+        )
+
+    if q:
+        search = f"%{q}%"
+        query = query.filter(
+            Document.title.ilike(search) |
+            Document.content.ilike(search) |
+            Document.number.ilike(search) |
+            Document.description.ilike(search)
+        )
+    if doc_type:
+        query = query.filter(Document.doc_type == doc_type)
+    if status:
+        query = query.filter(Document.status == status)
+    if author_id:
+        query = query.filter(Document.author_id == author_id)
+    if date_from:
+        try:
+            df = datetime.strptime(date_from, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+            query = query.filter(Document.created_at >= df)
+        except ValueError:
+            pass
+    if date_to:
+        try:
+            dt = datetime.strptime(date_to, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+            dt = dt.replace(hour=23, minute=59, second=59)
+            query = query.filter(Document.created_at <= dt)
+        except ValueError:
+            pass
+
+    docs = query.order_by(Document.updated_at.desc()).limit(100).all()
+
+    results = []
+    for d in docs:
+        results.append({
+            "id": d.id,
+            "number": d.number or "",
+            "title": d.title,
+            "doc_type": d.doc_type,
+            "status": d.status,
+            "author_name": d.author_user.name if d.author_user else "",
+            "created_at": str(d.created_at),
+            "deadline": d.deadline or "",
+        })
+    return {"results": results, "total": len(results)}
+
+
+# ============ RESOLUTION ============
+
+@app.post("/api/documents/{doc_id}/resolution", response_model=DocumentOut)
+def create_resolution(doc_id: int, data: ResolutionCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    doc = load_doc(db, doc_id)
+    if doc.status != "approved":
+        raise HTTPException(400, "Резолюция возможна только для согласованных документов")
+
+    # Only last approver or admin can create resolution
+    sorted_approvals = sorted(doc.approvals, key=lambda x: x.order_num)
+    last_approver_id = sorted_approvals[-1].user_id if sorted_approvals else None
+    if user.id != last_approver_id and user.role != "admin":
+        raise HTTPException(403, "Резолюцию может создать только последний согласующий или администратор")
+
+    if doc.resolution:
+        raise HTTPException(400, "Резолюция уже создана")
+
+    if not data.text.strip():
+        raise HTTPException(400, "Текст резолюции не может быть пустым")
+
+    resolution = Resolution(document_id=doc.id, user_id=user.id, text=sanitize(data.text))
+    db.add(resolution)
+    doc.status = "resolved"
+    doc.updated_at = datetime.now(timezone.utc)
+    add_history(db, doc, user.name, f"Резолюция: {data.text[:60]}")
+    add_notification(db, doc.author_id, "resolution", "Резолюция", f'{user.name} вынес резолюцию по "{doc.title}"', doc.id)
+    db.commit()
+    return doc_to_out(load_doc(db, doc.id))
+
+
+# ============ AUTO-APPROVE & DEPUTY ESCALATION ============
+
+@app.post("/api/auto-approve/run")
+def run_auto_approve(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """Manually trigger auto-approval check. Can also be called by cron/scheduler."""
+    if user.role != "admin":
+        raise HTTPException(403, "Только администратор")
+    count = _process_auto_approvals(db)
+    return {"processed": count}
+
+
+def _process_auto_approvals(db: Session) -> int:
+    """Check overdue approvals: auto-approve or escalate to deputy."""
+    now = datetime.now(timezone.utc)
+    pending_docs = db.query(Document).filter(
+        Document.status == "pending", Document.deleted == False
+    ).options(
+        joinedload(Document.approvals).joinedload(Approval.user),
+        joinedload(Document.author_user),
+    ).all()
+
+    count = 0
+    for doc in pending_docs:
+        if not doc.deadline:
+            continue
+        try:
+            dl = datetime.strptime(doc.deadline[:10], "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        except (ValueError, TypeError):
+            continue
+        if dl >= now:
+            continue
+
+        # Document is overdue - check each pending approval
+        for approval in sorted(doc.approvals, key=lambda a: a.order_num):
+            if approval.status != "pending":
+                continue
+
+            approver = db.query(User).filter(User.id == approval.user_id).first()
+            if not approver:
+                continue
+
+            # Auto-approve if user has auto_approve_hours set and time exceeded
+            if approver.auto_approve_hours and approver.auto_approve_hours > 0:
+                hours_overdue = (now - dl).total_seconds() / 3600
+                if hours_overdue >= approver.auto_approve_hours:
+                    approval.status = "approved"
+                    approval.comment = "Автосогласование (превышен таймаут)"
+                    approval.signature = secrets.token_hex(32)
+                    approval.decided_at = now
+                    add_history(db, doc, "Система", f"Автосогласование: {approver.name} (таймаут {approver.auto_approve_hours}ч)")
+                    count += 1
+
+                    # Check if all approved
+                    all_approved = all(a.status == "approved" for a in doc.approvals)
+                    if all_approved:
+                        doc.status = "approved"
+                        doc.updated_at = now
+                        add_history(db, doc, "Система", "Полностью согласован (авто)")
+                        add_notification(db, doc.author_id, "approved", "Согласован (авто)", f'"{doc.title}" согласован автоматически', doc.id)
+                    continue
+
+            # Escalate to deputy if set
+            if approver.deputy_id:
+                deputy = db.query(User).filter(User.id == approver.deputy_id).first()
+                if deputy:
+                    # Notify deputy about overdue approval
+                    existing = db.query(Notification).filter(
+                        Notification.user_id == deputy.id,
+                        Notification.doc_id == doc.id,
+                        Notification.notif_type == "deputy_escalation",
+                    ).first()
+                    if not existing:
+                        add_notification(db, deputy.id, "deputy_escalation",
+                                         "Эскалация: требуется согласование",
+                                         f'Документ "{doc.title}" просрочен. Вы заместитель {approver.name}.', doc.id)
+                        add_history(db, doc, "Система", f"Эскалация заместителю: {deputy.name} (за {approver.name})")
+                        count += 1
+
+            # If sequential, only process first pending
+            if doc.sequential:
+                break
+
+    db.commit()
+    return count
+
+
+@app.put("/api/users/{user_id}/auto-approve")
+def set_auto_approve(user_id: int, hours: int = 0, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    if user.id != user_id and user.role != "admin":
+        raise HTTPException(403, "Нет прав")
+    target = db.query(User).filter(User.id == user_id).first()
+    if not target:
+        raise HTTPException(404, "Пользователь не найден")
+    if hours < 0 or hours > 720:
+        raise HTTPException(400, "Таймаут должен быть от 0 до 720 часов")
+    target.auto_approve_hours = hours
+    db.commit()
+    return {"ok": True, "auto_approve_hours": hours}
+
+
 # ============ ROUTES ============
 
 @app.get("/api/routes", response_model=list[RouteOut])
@@ -888,7 +1177,7 @@ DOC_TYPE_LABELS = {
     "accounting_memo":"Бухгалтерская справка","power_of_attorney":"Доверенность",
     "cash_order":"Кассовый ордер","other":"Прочее",
 }
-STATUS_LABELS = {"draft":"Черновик","pending":"На согласовании","approved":"Согласован","rejected":"Отклонён","archived":"Архив"}
+STATUS_LABELS = {"draft":"Черновик","pending":"На согласовании","approved":"Согласован","rejected":"Отклонён","resolved":"Исполнен","archived":"Архив"}
 PRIORITY_LABELS = {"low":"Низкий","normal":"Обычный","high":"Высокий","urgent":"Срочный"}
 
 

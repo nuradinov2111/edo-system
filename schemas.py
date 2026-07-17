@@ -97,6 +97,18 @@ class VersionOut(BaseModel):
     created_at: datetime
     model_config = {"from_attributes": True}
 
+class ResolutionOut(BaseModel):
+    id: int
+    user_id: int
+    user_name: str = ""
+    text: str
+    created_at: datetime
+    model_config = {"from_attributes": True}
+
+class ResolutionCreate(BaseModel):
+    text: str
+
+
 class DocumentOut(BaseModel):
     id: int
     number: str
@@ -121,6 +133,7 @@ class DocumentOut(BaseModel):
     attachments: list[AttachmentOut] = []
     tags: list[TagOut] = []
     related_doc_ids: list[int] = []
+    resolution: Optional[ResolutionOut] = None
     model_config = {"from_attributes": True}
 
 

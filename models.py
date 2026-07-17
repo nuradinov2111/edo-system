@@ -31,6 +31,7 @@ class User(Base):
     position = Column(String(200), default="")
     color = Column(String(20), default="#2563eb")
     deputy_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    auto_approve_hours = Column(Integer, default=0)  # 0 = disabled
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     documents = relationship("Document", back_populates="author_user", foreign_keys="Document.author_id")
@@ -65,6 +66,7 @@ class Document(Base):
     history = relationship("History", back_populates="document", cascade="all, delete-orphan", order_by="History.created_at")
     versions = relationship("Version", back_populates="document", cascade="all, delete-orphan", order_by="Version.created_at")
     attachments = relationship("Attachment", back_populates="document", cascade="all, delete-orphan")
+    resolution = relationship("Resolution", back_populates="document", uselist=False, cascade="all, delete-orphan")
     tags = relationship("Tag", secondary=doc_tags, back_populates="documents")
     related_docs = relationship(
         "Document", secondary=doc_related,
@@ -172,6 +174,19 @@ class ApprovalRoute(Base):
     name = Column(String(200), nullable=False)
     user_ids = Column(Text, default="")
     sequential = Column(Boolean, default=False)
+
+
+class Resolution(Base):
+    __tablename__ = "resolutions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    document_id = Column(Integer, ForeignKey("documents.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    text = Column(Text, default="")
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+    document = relationship("Document", back_populates="resolution")
+    user = relationship("User")
 
 
 class Task(Base):
