@@ -413,6 +413,75 @@ def check_doc_access(doc: Document, user: User, db: Session):
     raise HTTPException(403, "Нет доступа к документу")
 
 
+@app.get("/api/documents/search")
+def search_documents(
+    q: str = "",
+    doc_type: str = "",
+    status: str = "",
+    author_id: int = 0,
+    date_from: str = "",
+    date_to: str = "",
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    query = db.query(Document).options(
+        joinedload(Document.author_user),
+        joinedload(Document.approvals).joinedload(Approval.user),
+        joinedload(Document.tags),
+        joinedload(Document.resolution).joinedload(Resolution.user),
+    ).filter(Document.deleted == False)
+
+    if user.role != "admin":
+        query = query.filter(
+            (Document.author_id == user.id) |
+            Document.id.in_(db.query(Approval.document_id).filter(Approval.user_id == user.id))
+        )
+
+    if q:
+        search = f"%{q}%"
+        query = query.filter(
+            Document.title.ilike(search) |
+            Document.content.ilike(search) |
+            Document.number.ilike(search) |
+            Document.description.ilike(search)
+        )
+    if doc_type:
+        query = query.filter(Document.doc_type == doc_type)
+    if status:
+        query = query.filter(Document.status == status)
+    if author_id:
+        query = query.filter(Document.author_id == author_id)
+    if date_from:
+        try:
+            df = datetime.strptime(date_from, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+            query = query.filter(Document.created_at >= df)
+        except ValueError:
+            pass
+    if date_to:
+        try:
+            dt = datetime.strptime(date_to, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+            dt = dt.replace(hour=23, minute=59, second=59)
+            query = query.filter(Document.created_at <= dt)
+        except ValueError:
+            pass
+
+    docs = query.order_by(Document.updated_at.desc()).limit(100).all()
+
+    results = []
+    for d in docs:
+        results.append({
+            "id": d.id,
+            "number": d.number or "",
+            "title": d.title,
+            "doc_type": d.doc_type,
+            "status": d.status,
+            "author_name": d.author_user.name if d.author_user else "",
+            "created_at": str(d.created_at),
+            "deadline": d.deadline or "",
+        })
+    return {"results": results, "total": len(results)}
+
+
 @app.get("/api/documents/{doc_id}", response_model=DocumentOut)
 def get_document(doc_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     doc = load_doc(db, doc_id)
@@ -930,77 +999,6 @@ def get_dashboard(db: Session = Depends(get_db), user: User = Depends(get_curren
         "recent": recent_out,
         "my_tasks": tasks_out,
     }
-
-
-# ============ SEARCH ============
-
-@app.get("/api/documents/search")
-def search_documents(
-    q: str = "",
-    doc_type: str = "",
-    status: str = "",
-    author_id: int = 0,
-    date_from: str = "",
-    date_to: str = "",
-    db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
-):
-    query = db.query(Document).options(
-        joinedload(Document.author_user),
-        joinedload(Document.approvals).joinedload(Approval.user),
-        joinedload(Document.tags),
-        joinedload(Document.resolution).joinedload(Resolution.user),
-    ).filter(Document.deleted == False)
-
-    if user.role != "admin":
-        query = query.filter(
-            (Document.author_id == user.id) |
-            Document.id.in_(db.query(Approval.document_id).filter(Approval.user_id == user.id))
-        )
-
-    if q:
-        search = f"%{q}%"
-        query = query.filter(
-            Document.title.ilike(search) |
-            Document.content.ilike(search) |
-            Document.number.ilike(search) |
-            Document.description.ilike(search)
-        )
-    if doc_type:
-        query = query.filter(Document.doc_type == doc_type)
-    if status:
-        query = query.filter(Document.status == status)
-    if author_id:
-        query = query.filter(Document.author_id == author_id)
-    if date_from:
-        try:
-            df = datetime.strptime(date_from, "%Y-%m-%d").replace(tzinfo=timezone.utc)
-            query = query.filter(Document.created_at >= df)
-        except ValueError:
-            pass
-    if date_to:
-        try:
-            dt = datetime.strptime(date_to, "%Y-%m-%d").replace(tzinfo=timezone.utc)
-            dt = dt.replace(hour=23, minute=59, second=59)
-            query = query.filter(Document.created_at <= dt)
-        except ValueError:
-            pass
-
-    docs = query.order_by(Document.updated_at.desc()).limit(100).all()
-
-    results = []
-    for d in docs:
-        results.append({
-            "id": d.id,
-            "number": d.number or "",
-            "title": d.title,
-            "doc_type": d.doc_type,
-            "status": d.status,
-            "author_name": d.author_user.name if d.author_user else "",
-            "created_at": str(d.created_at),
-            "deadline": d.deadline or "",
-        })
-    return {"results": results, "total": len(results)}
 
 
 # ============ RESOLUTION ============
