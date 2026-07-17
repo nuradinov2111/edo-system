@@ -25,6 +25,14 @@ class UserOut(BaseModel):
     position: str
     color: str
     deputy_id: Optional[int] = None
+    user_status: str = "available"
+    notify_email: str = ""
+    notify_telegram: str = ""
+    notify_browser: bool = True
+    notify_on_approve: bool = True
+    notify_on_reject: bool = True
+    notify_on_comment: bool = True
+    notify_on_task: bool = True
     model_config = {"from_attributes": True}
 
 class Token(BaseModel):
@@ -187,6 +195,25 @@ class UserCreate(BaseModel):
 
 class DeputySet(BaseModel):
     deputy_id: Optional[int] = None
+
+
+class ProfileUpdate(BaseModel):
+    name: Optional[str] = None
+    department: Optional[str] = None
+    position: Optional[str] = None
+    user_status: Optional[str] = None
+    notify_email: Optional[str] = None
+    notify_telegram: Optional[str] = None
+    notify_browser: Optional[bool] = None
+    notify_on_approve: Optional[bool] = None
+    notify_on_reject: Optional[bool] = None
+    notify_on_comment: Optional[bool] = None
+    notify_on_task: Optional[bool] = None
+
+
+class PasswordChange(BaseModel):
+    old_password: str
+    new_password: str
 
 
 # --- Task (поручение) ---

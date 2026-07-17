@@ -32,6 +32,14 @@ class User(Base):
     color = Column(String(20), default="#2563eb")
     deputy_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     auto_approve_hours = Column(Integer, default=0)  # 0 = disabled
+    user_status = Column(String(20), default="available")  # available, away, vacation
+    notify_email = Column(String(200), default="")
+    notify_telegram = Column(String(100), default="")
+    notify_browser = Column(Boolean, default=True)
+    notify_on_approve = Column(Boolean, default=True)
+    notify_on_reject = Column(Boolean, default=True)
+    notify_on_comment = Column(Boolean, default=True)
+    notify_on_task = Column(Boolean, default=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     documents = relationship("Document", back_populates="author_user", foreign_keys="Document.author_id")

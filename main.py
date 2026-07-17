@@ -14,6 +14,7 @@ from schemas import (
     DocumentCreate, DocumentOut, ApprovalOut, CommentOut, CommentCreate,
     ApprovalAction, NotificationOut, RouteCreate, RouteOut, TagOut,
     TaskCreate, TaskUpdate, TaskOut, ResolutionOut, ResolutionCreate,
+    ProfileUpdate, PasswordChange,
 )
 from auth import hash_password, verify_password, create_token, get_current_user
 import secrets
@@ -86,6 +87,14 @@ def run_migrations(eng):
             ("users", "auto_approve_hours", "INTEGER DEFAULT 0"),
             ("attachments", "filepath", "VARCHAR(1000) DEFAULT ''"),
             ("attachments", "filesize", "INTEGER DEFAULT 0"),
+            ("users", "user_status", "VARCHAR(20) DEFAULT 'available'"),
+            ("users", "notify_email", "VARCHAR(200) DEFAULT ''"),
+            ("users", "notify_telegram", "VARCHAR(100) DEFAULT ''"),
+            ("users", "notify_browser", "BOOLEAN DEFAULT TRUE"),
+            ("users", "notify_on_approve", "BOOLEAN DEFAULT TRUE"),
+            ("users", "notify_on_reject", "BOOLEAN DEFAULT TRUE"),
+            ("users", "notify_on_comment", "BOOLEAN DEFAULT TRUE"),
+            ("users", "notify_on_task", "BOOLEAN DEFAULT TRUE"),
         ]
         for table, col, col_type in migrations:
             if table in existing_tables:
@@ -232,6 +241,50 @@ def set_deputy(user_id: int, data: DeputySet, db: Session = Depends(get_db), use
     db.commit()
     db.refresh(target)
     return UserOut.model_validate(target)
+
+
+# ============ PROFILE ============
+
+@app.put("/api/profile")
+def update_profile(data: ProfileUpdate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    if data.name is not None:
+        user.name = sanitize(data.name)
+    if data.department is not None:
+        user.department = sanitize(data.department)
+    if data.position is not None:
+        user.position = sanitize(data.position)
+    if data.user_status is not None:
+        if data.user_status not in ("available", "away", "vacation"):
+            raise HTTPException(400, "Неверный статус")
+        user.user_status = data.user_status
+    if data.notify_email is not None:
+        user.notify_email = sanitize(data.notify_email)
+    if data.notify_telegram is not None:
+        user.notify_telegram = sanitize(data.notify_telegram)
+    if data.notify_browser is not None:
+        user.notify_browser = data.notify_browser
+    if data.notify_on_approve is not None:
+        user.notify_on_approve = data.notify_on_approve
+    if data.notify_on_reject is not None:
+        user.notify_on_reject = data.notify_on_reject
+    if data.notify_on_comment is not None:
+        user.notify_on_comment = data.notify_on_comment
+    if data.notify_on_task is not None:
+        user.notify_on_task = data.notify_on_task
+    db.commit()
+    db.refresh(user)
+    return UserOut.model_validate(user)
+
+
+@app.post("/api/profile/password")
+def change_password(data: PasswordChange, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    if not verify_password(data.old_password, user.password_hash):
+        raise HTTPException(400, "Неверный текущий пароль")
+    if len(data.new_password) < 4:
+        raise HTTPException(400, "Пароль должен быть не менее 4 символов")
+    user.password_hash = hash_password(data.new_password)
+    db.commit()
+    return {"ok": True}
 
 
 # ============ TAGS ============
