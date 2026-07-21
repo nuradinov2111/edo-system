@@ -4,7 +4,7 @@ from fastapi import FastAPI, Depends, HTTPException, status, UploadFile, File, F
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session, joinedload
-from database import engine, get_db, Base
+from database import engine, get_db, Base, SessionLocal
 from models import (
     User, Document, Tag, Approval, Comment, Notification,
     History, Version, Attachment, ApprovalRoute, doc_tags, doc_related, Task, Resolution,
@@ -29,9 +29,17 @@ from collections import defaultdict
 _login_attempts: dict[str, list[float]] = defaultdict(list)
 _LOGIN_MAX_ATTEMPTS = 5
 _LOGIN_WINDOW = 300  # 5 minutes
+_login_last_cleanup = 0.0
 
 def _check_rate_limit(key: str):
+    global _login_last_cleanup
     now = time.time()
+    # Periodically clean up old entries to prevent memory leak
+    if now - _login_last_cleanup > _LOGIN_WINDOW:
+        stale_keys = [k for k, v in _login_attempts.items() if not v or now - v[-1] > _LOGIN_WINDOW]
+        for k in stale_keys:
+            del _login_attempts[k]
+        _login_last_cleanup = now
     _login_attempts[key] = [t for t in _login_attempts[key] if now - t < _LOGIN_WINDOW]
     if len(_login_attempts[key]) >= _LOGIN_MAX_ATTEMPTS:
         raise HTTPException(429, "Слишком много попыток. Подождите 5 минут.")
@@ -54,7 +62,7 @@ async def _auto_approve_loop():
     while True:
         await asyncio.sleep(1800)  # 30 min
         try:
-            db = next(get_db())
+            db = SessionLocal()
             _process_auto_approvals(db)
             db.close()
         except Exception:
@@ -106,7 +114,7 @@ def run_migrations(eng):
 
 
 def _seed_data():
-    db = next(get_db())
+    db = SessionLocal()
     if db.query(Tag).count() == 0:
         for name, color in [("Срочно","red"),("Финансы","green"),("Кадры","blue"),("Продажи","yellow"),("Важно","purple"),("Личное","pink")]:
             db.add(Tag(name=name, color=color))
@@ -133,13 +141,8 @@ def _seed_data():
                 position=u["position"], color=u["color"],
             ))
         else:
-            existing.login = u["login"]
-            existing.name = u["name"]
-            existing.role = u["role"]
-            existing.department = u["department"]
-            existing.position = u["position"]
-            existing.color = u["color"]
-            existing.password_hash = hash_password(u["password"])
+            if not existing.login:
+                existing.login = u["login"]
     db.commit()
 
     # Удалить старых тестовых пользователей без логина
@@ -316,13 +319,21 @@ TYPE_PREFIX = {
     "other":"ДОК",
 }
 
+VALID_DOC_TYPES = set(TYPE_PREFIX.keys())
+
 def gen_number(db: Session, doc_type: str) -> str:
     prefix = TYPE_PREFIX.get(doc_type, "ДОК")
     year = datetime.now().year
     from sqlalchemy import func
     count = db.query(func.count(Document.id)).filter(Document.doc_type == doc_type).scalar() + 1
     total = db.query(func.count(Document.id)).scalar() + 1
-    return f"{prefix}-{year}-{str(count).zfill(3)} (№{total})"
+    number = f"{prefix}-{year}-{str(count).zfill(3)} (№{total})"
+    # Retry with incremented count if number already exists
+    while db.query(Document).filter(Document.number == number).first():
+        count += 1
+        total += 1
+        number = f"{prefix}-{year}-{str(count).zfill(3)} (№{total})"
+    return number
 
 
 def doc_to_out(doc: Document) -> DocumentOut:
@@ -383,7 +394,7 @@ def add_notification(db: Session, user_id: int, notif_type: str, title: str, mes
 
 
 @app.get("/api/documents", response_model=list[DocumentOut])
-def list_documents(include_deleted: bool = False, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+def list_documents(include_deleted: bool = False, limit: int = 200, offset: int = 0, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     q = db.query(Document).options(
         joinedload(Document.author_user),
         joinedload(Document.approvals).joinedload(Approval.user),
@@ -404,7 +415,9 @@ def list_documents(include_deleted: bool = False, db: Session = Depends(get_db),
                 db.query(Approval.document_id).filter(Approval.user_id == user.id)
             )
         )
-    docs = q.order_by(Document.updated_at.desc()).all()
+    if limit > 500:
+        limit = 500
+    docs = q.order_by(Document.updated_at.desc()).offset(offset).limit(limit).all()
     return [doc_to_out(d) for d in docs]
 
 
@@ -429,6 +442,8 @@ def list_trash(db: Session = Depends(get_db), user: User = Depends(get_current_u
 
 @app.post("/api/documents", response_model=DocumentOut)
 def create_document(data: DocumentCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    if data.doc_type not in VALID_DOC_TYPES:
+        raise HTTPException(400, f"Неизвестный тип документа: {data.doc_type}")
     number = gen_number(db, data.doc_type)
     doc = Document(
         number=number, title=sanitize(data.title), description=sanitize(data.description),
@@ -575,6 +590,8 @@ def update_document(doc_id: int, data: DocumentCreate, db: Session = Depends(get
     doc.tags = tags
 
     for att in doc.attachments:
+        if att.filepath and os.path.exists(att.filepath):
+            os.remove(att.filepath)
         db.delete(att)
     for att in data.attachments:
         db.add(Attachment(document_id=doc.id, filename=att.get("name",""), size=att.get("size","")))
@@ -838,8 +855,11 @@ async def upload_file(doc_id: int, file: UploadFile = File(...), db: Session = D
     os.makedirs(doc_dir, exist_ok=True)
     safe_name = secrets.token_hex(8) + "_" + (file.filename or "file")
     filepath = os.path.join(doc_dir, safe_name)
+    content = await file.read()
+    max_size = 50 * 1024 * 1024  # 50 MB
+    if len(content) > max_size:
+        raise HTTPException(400, "Файл слишком большой (макс. 50 МБ)")
     with open(filepath, "wb") as f:
-        content = await file.read()
         f.write(content)
     att = Attachment(
         document_id=doc_id, filename=file.filename or "file",
@@ -885,7 +905,7 @@ def delete_file(att_id: int, db: Session = Depends(get_db), user: User = Depends
 def add_comment(doc_id: int, data: CommentCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     doc = load_doc(db, doc_id)
     db.add(Comment(document_id=doc.id, user_id=user.id, text=sanitize(data.text)))
-    add_history(db, doc, user.name, "Комментарий: " + data.text[:40])
+    add_history(db, doc, user.name, "Комментарий: " + sanitize(data.text)[:40])
     if doc.author_id != user.id:
         add_notification(db, doc.author_id, "comment", "Комментарий", f'{user.name}: "{doc.title}"', doc.id)
     doc.updated_at = datetime.now(timezone.utc)
@@ -897,7 +917,7 @@ def add_comment(doc_id: int, data: CommentCreate, db: Session = Depends(get_db),
 
 @app.get("/api/notifications", response_model=list[NotificationOut])
 def list_notifications(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    notifs = db.query(Notification).filter(Notification.user_id == user.id).order_by(Notification.created_at.desc()).all()
+    notifs = db.query(Notification).filter(Notification.user_id == user.id).order_by(Notification.created_at.desc()).limit(200).all()
     return [NotificationOut.model_validate(n) for n in notifs]
 
 
