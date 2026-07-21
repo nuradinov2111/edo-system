@@ -397,6 +397,17 @@ TYPE_PREFIX = {
 
 VALID_DOC_TYPES = set(TYPE_PREFIX.keys())
 
+INCOMING_TYPES = [
+    "incoming_letter", "incoming_invoice", "incoming_act", "incoming_waybill",
+    "incoming_invoice_tax", "incoming_notification", "incoming_request",
+    "incoming_reconciliation", "incoming_contract",
+]
+OUTGOING_TYPES = [
+    "outgoing_letter", "outgoing_invoice", "outgoing_act", "outgoing_waybill",
+    "outgoing_invoice_tax", "outgoing_notification", "outgoing_request",
+    "outgoing_reconciliation", "outgoing_contract",
+]
+
 def gen_number(db: Session, doc_type: str) -> str:
     prefix = TYPE_PREFIX.get(doc_type, "ДОК")
     year = datetime.now().year
@@ -565,6 +576,96 @@ def check_doc_access(doc: Document, user: User, db: Session):
     if any(a.user_id == user.id for a in doc.approvals):
         return
     raise HTTPException(403, "Нет доступа к документу")
+
+
+@app.get("/api/documents/correspondence")
+def search_correspondence(
+    direction: str = "incoming",
+    doc_type: str = "",
+    status: str = "",
+    q: str = "",
+    date_from: str = "",
+    date_to: str = "",
+    limit: int = 100, offset: int = 0,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    if user.role != "admin" and user.department != "Бухгалтерия":
+        raise HTTPException(403, "Доступ только для бухгалтерии и администратора")
+    types = INCOMING_TYPES if direction == "incoming" else OUTGOING_TYPES
+    query = db.query(Document).options(
+        joinedload(Document.author_user),
+        joinedload(Document.tags),
+    ).filter(Document.deleted == False, Document.doc_type.in_(types))
+    if doc_type:
+        query = query.filter(Document.doc_type == doc_type)
+    if status:
+        query = query.filter(Document.status == status)
+    if q:
+        search = f"%{q}%"
+        query = query.filter(
+            Document.title.ilike(search) | Document.number.ilike(search) |
+            Document.description.ilike(search) | Document.extra_fields.ilike(search)
+        )
+    if date_from:
+        try:
+            df = datetime.strptime(date_from, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+            query = query.filter(Document.created_at >= df)
+        except ValueError:
+            pass
+    if date_to:
+        try:
+            dt = datetime.strptime(date_to, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+            dt = dt.replace(hour=23, minute=59, second=59)
+            query = query.filter(Document.created_at <= dt)
+        except ValueError:
+            pass
+    if limit > 500:
+        limit = 500
+    docs = query.order_by(Document.created_at.desc()).offset(offset).limit(limit).all()
+    results = []
+    for d in docs:
+        extra = json.loads(d.extra_fields) if isinstance(d.extra_fields, str) else (d.extra_fields or {})
+        results.append({
+            "id": d.id, "number": d.number or "", "title": d.title,
+            "doc_type": d.doc_type, "status": d.status,
+            "author_name": d.author_user.name if d.author_user else "",
+            "created_at": str(d.created_at), "deadline": d.deadline or "",
+            "extra_fields": extra,
+        })
+    total = query.count() if not offset else len(results)
+    return {"results": results, "total": total}
+
+
+@app.post("/api/documents/bulk")
+def bulk_action(data: BulkAction, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    if not data.doc_ids:
+        raise HTTPException(400, "Не указаны документы")
+    if len(data.doc_ids) > 100:
+        raise HTTPException(400, "Максимум 100 документов за раз")
+    if data.action not in ("delete", "archive", "restore"):
+        raise HTTPException(400, "Неизвестное действие")
+    docs = db.query(Document).filter(Document.id.in_(data.doc_ids)).all()
+    processed = 0
+    for doc in docs:
+        if doc.author_id != user.id and user.role != "admin":
+            continue
+        if data.action == "delete":
+            doc.deleted = True
+            doc.updated_at = datetime.now(timezone.utc)
+            add_history(db, doc, user.name, "Перемещён в корзину (массово)")
+        elif data.action == "archive":
+            doc.status = "archived"
+            doc.updated_at = datetime.now(timezone.utc)
+            add_history(db, doc, user.name, "В архив (массово)")
+        elif data.action == "restore":
+            doc.deleted = False
+            doc.updated_at = datetime.now(timezone.utc)
+            add_history(db, doc, user.name, "Восстановлен (массово)")
+        processed += 1
+    add_audit(db, user.id, user.name, f"bulk_{data.action}", "document", details=f"{processed} документов")
+    db.commit()
+    return {"ok": True, "processed": processed}
 
 
 @app.get("/api/documents/search")
@@ -1341,118 +1442,6 @@ def list_audit_log(
         limit = 500
     logs = q.order_by(AuditLog.created_at.desc()).offset(offset).limit(limit).all()
     return [AuditLogOut.model_validate(l) for l in logs]
-
-
-# ============ CORRESPONDENCE (Incoming/Outgoing search) ============
-
-INCOMING_TYPES = [
-    "incoming_letter", "incoming_invoice", "incoming_act", "incoming_waybill",
-    "incoming_invoice_tax", "incoming_notification", "incoming_request",
-    "incoming_reconciliation", "incoming_contract",
-]
-OUTGOING_TYPES = [
-    "outgoing_letter", "outgoing_invoice", "outgoing_act", "outgoing_waybill",
-    "outgoing_invoice_tax", "outgoing_notification", "outgoing_request",
-    "outgoing_reconciliation", "outgoing_contract",
-]
-
-@app.get("/api/documents/correspondence")
-def search_correspondence(
-    direction: str = "incoming",  # incoming or outgoing
-    doc_type: str = "",
-    status: str = "",
-    q: str = "",
-    date_from: str = "",
-    date_to: str = "",
-    limit: int = 100, offset: int = 0,
-    db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
-):
-    # Only accountant and admin
-    if user.role != "admin" and user.department != "Бухгалтерия":
-        raise HTTPException(403, "Доступ только для бухгалтерии и администратора")
-
-    types = INCOMING_TYPES if direction == "incoming" else OUTGOING_TYPES
-    query = db.query(Document).options(
-        joinedload(Document.author_user),
-        joinedload(Document.tags),
-    ).filter(Document.deleted == False, Document.doc_type.in_(types))
-
-    if doc_type:
-        query = query.filter(Document.doc_type == doc_type)
-    if status:
-        query = query.filter(Document.status == status)
-    if q:
-        search = f"%{q}%"
-        query = query.filter(
-            Document.title.ilike(search) | Document.number.ilike(search) |
-            Document.description.ilike(search) | Document.extra_fields.ilike(search)
-        )
-    if date_from:
-        try:
-            df = datetime.strptime(date_from, "%Y-%m-%d").replace(tzinfo=timezone.utc)
-            query = query.filter(Document.created_at >= df)
-        except ValueError:
-            pass
-    if date_to:
-        try:
-            dt = datetime.strptime(date_to, "%Y-%m-%d").replace(tzinfo=timezone.utc)
-            dt = dt.replace(hour=23, minute=59, second=59)
-            query = query.filter(Document.created_at <= dt)
-        except ValueError:
-            pass
-
-    if limit > 500:
-        limit = 500
-    docs = query.order_by(Document.created_at.desc()).offset(offset).limit(limit).all()
-
-    results = []
-    for d in docs:
-        extra = json.loads(d.extra_fields) if isinstance(d.extra_fields, str) else (d.extra_fields or {})
-        results.append({
-            "id": d.id, "number": d.number or "", "title": d.title,
-            "doc_type": d.doc_type, "status": d.status,
-            "author_name": d.author_user.name if d.author_user else "",
-            "created_at": str(d.created_at), "deadline": d.deadline or "",
-            "extra_fields": extra,
-        })
-    total = query.count() if not offset else len(results)
-    return {"results": results, "total": total}
-
-
-# ============ BULK OPERATIONS ============
-
-@app.post("/api/documents/bulk")
-def bulk_action(data: BulkAction, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    if not data.doc_ids:
-        raise HTTPException(400, "Не указаны документы")
-    if len(data.doc_ids) > 100:
-        raise HTTPException(400, "Максимум 100 документов за раз")
-    if data.action not in ("delete", "archive", "restore"):
-        raise HTTPException(400, "Неизвестное действие")
-
-    docs = db.query(Document).filter(Document.id.in_(data.doc_ids)).all()
-    processed = 0
-    for doc in docs:
-        if doc.author_id != user.id and user.role != "admin":
-            continue
-        if data.action == "delete":
-            doc.deleted = True
-            doc.updated_at = datetime.now(timezone.utc)
-            add_history(db, doc, user.name, "Перемещён в корзину (массово)")
-        elif data.action == "archive":
-            doc.status = "archived"
-            doc.updated_at = datetime.now(timezone.utc)
-            add_history(db, doc, user.name, "В архив (массово)")
-        elif data.action == "restore":
-            doc.deleted = False
-            doc.updated_at = datetime.now(timezone.utc)
-            add_history(db, doc, user.name, "Восстановлен (массово)")
-        processed += 1
-
-    add_audit(db, user.id, user.name, f"bulk_{data.action}", "document", details=f"{processed} документов")
-    db.commit()
-    return {"ok": True, "processed": processed}
 
 
 # ============ DOCUMENT TEMPLATES ============
