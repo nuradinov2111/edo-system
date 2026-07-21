@@ -5,9 +5,11 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session, joinedload
 from database import engine, get_db, Base, SessionLocal
+from fastapi import Request
 from models import (
     User, Document, Tag, Approval, Comment, Notification,
     History, Version, Attachment, ApprovalRoute, doc_tags, doc_related, Task, Resolution,
+    AuditLog, DocumentTemplate,
 )
 from schemas import (
     UserRegister, UserLogin, UserOut, UserOutPublic, Token, UserCreate, DeputySet,
@@ -15,6 +17,7 @@ from schemas import (
     ApprovalAction, NotificationOut, RouteCreate, RouteOut, TagOut,
     TaskCreate, TaskUpdate, TaskOut, ResolutionOut, ResolutionCreate,
     ProfileUpdate, PasswordChange,
+    AuditLogOut, TemplateCreate, TemplateOut, BulkAction,
 )
 from auth import hash_password, verify_password, create_token, get_current_user
 import secrets
@@ -68,14 +71,83 @@ async def _auto_approve_loop():
         except Exception:
             pass
 
+async def _deadline_reminder_loop():
+    """Background task: send reminders 1-3 days before deadline."""
+    while True:
+        await asyncio.sleep(3600)  # every hour
+        try:
+            db = SessionLocal()
+            _process_deadline_reminders(db)
+            db.close()
+        except Exception:
+            pass
+
+def _process_deadline_reminders(db: Session):
+    """Send notifications for documents approaching deadline."""
+    now = datetime.now(timezone.utc)
+    from datetime import timedelta
+    docs = db.query(Document).filter(
+        Document.deleted == False,
+        Document.status.in_(["draft", "pending"]),
+        Document.deadline != "",
+    ).all()
+    for doc in docs:
+        try:
+            dl = datetime.strptime(doc.deadline[:10], "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        except (ValueError, TypeError):
+            continue
+        days_left = (dl - now).days
+        if days_left < 0 or days_left > 3:
+            continue
+        # Check if reminder already sent today
+        today_str = now.strftime("%Y-%m-%d")
+        existing = db.query(Notification).filter(
+            Notification.user_id == doc.author_id,
+            Notification.doc_id == doc.id,
+            Notification.notif_type == "deadline_reminder",
+            Notification.created_at >= datetime.strptime(today_str, "%Y-%m-%d").replace(tzinfo=timezone.utc),
+        ).first()
+        if existing:
+            continue
+        if days_left == 0:
+            msg = f'Сегодня истекает срок: "{doc.title}"'
+        elif days_left == 1:
+            msg = f'Завтра истекает срок: "{doc.title}"'
+        else:
+            msg = f'Через {days_left} дня истекает срок: "{doc.title}"'
+        db.add(Notification(
+            user_id=doc.author_id, notif_type="deadline_reminder",
+            title="Напоминание о дедлайне", message=msg, doc_id=doc.id,
+        ))
+        # Also notify approvers if pending
+        if doc.status == "pending":
+            for a in doc.approvals:
+                if a.status == "pending":
+                    db.add(Notification(
+                        user_id=a.user_id, notif_type="deadline_reminder",
+                        title="Напоминание о дедлайне", message=msg, doc_id=doc.id,
+                    ))
+    db.commit()
+
+
+def add_audit(db: Session, user_id: int, user_name: str, action: str,
+              entity_type: str = "", entity_id: int = None, details: str = "", ip: str = ""):
+    db.add(AuditLog(
+        user_id=user_id, user_name=user_name, action=action,
+        entity_type=entity_type, entity_id=entity_id, details=details, ip_address=ip,
+    ))
+
+
 @asynccontextmanager
 async def lifespan(application):
     run_migrations(engine)
     Base.metadata.create_all(bind=engine)
     _seed_data()
     task = asyncio.create_task(_auto_approve_loop())
+    task2 = asyncio.create_task(_deadline_reminder_loop())
     yield
     task.cancel()
+    task2.cancel()
 
 app = FastAPI(title="ЭДО API", lifespan=lifespan)
 
@@ -159,7 +231,7 @@ def _seed_data():
 # ============ AUTH ============
 
 @app.post("/api/register", response_model=Token)
-def register(data: UserRegister, db: Session = Depends(get_db)):
+def register(data: UserRegister, request: Request, db: Session = Depends(get_db)):
     login_val = data.login.strip().lower()
     if not login_val.isalpha() or len(login_val) != 6:
         raise HTTPException(400, "Логин должен состоять из 6 английских букв")
@@ -173,6 +245,8 @@ def register(data: UserRegister, db: Session = Depends(get_db)):
         color=colors[db.query(User).count() % len(colors)],
     )
     db.add(user)
+    db.flush()
+    add_audit(db, user.id, user.name, "register", "user", user.id, ip=request.client.host if request.client else "")
     db.commit()
     db.refresh(user)
     token = create_token(user.id)
@@ -180,12 +254,14 @@ def register(data: UserRegister, db: Session = Depends(get_db)):
 
 
 @app.post("/api/login", response_model=Token)
-def login(data: UserLogin, db: Session = Depends(get_db)):
+def login(data: UserLogin, request: Request, db: Session = Depends(get_db)):
     login_val = data.login.strip().lower()
     _check_rate_limit(login_val)
     user = db.query(User).filter(User.login == login_val).first()
     if not user or not verify_password(data.password, user.password_hash):
         raise HTTPException(401, "Неверный логин или пароль")
+    add_audit(db, user.id, user.name, "login", "user", user.id, ip=request.client.host if request.client else "")
+    db.commit()
     token = create_token(user.id)
     return Token(access_token=token, user=UserOut.model_validate(user))
 
@@ -467,6 +543,7 @@ def create_document(data: DocumentCreate, db: Session = Depends(get_db), user: U
         doc.related_docs = related
 
     add_history(db, doc, user.name, "Создан")
+    add_audit(db, user.id, user.name, "create", "document", doc.id, f"{doc.doc_type}: {doc.title[:60]}")
 
     if data.status == "pending" and data.approver_ids:
         for i, uid in enumerate(data.approver_ids):
@@ -624,6 +701,7 @@ def delete_document(doc_id: int, db: Session = Depends(get_db), user: User = Dep
     doc.deleted = True
     doc.updated_at = datetime.now(timezone.utc)
     add_history(db, doc, user.name, "Перемещён в корзину")
+    add_audit(db, user.id, user.name, "delete", "document", doc.id, doc.title[:60])
     db.commit()
     return {"ok": True}
 
@@ -722,6 +800,7 @@ def approve_document(doc_id: int, data: ApprovalAction, db: Session = Depends(ge
         add_history(db, doc, user.name, "Полностью согласован")
         add_notification(db, doc.author_id, "approved", "Согласован", f'"{doc.title}" согласован', doc.id)
 
+    add_audit(db, user.id, user.name, "approve", "document", doc.id, doc.title[:60])
     doc.updated_at = datetime.now(timezone.utc)
     db.commit()
     return doc_to_out(load_doc(db, doc.id))
@@ -756,6 +835,7 @@ def reject_document(doc_id: int, data: ApprovalAction, db: Session = Depends(get
     else:
         add_history(db, doc, user.name, f"Отклонён: {user.name} — {data.comment}")
     add_notification(db, doc.author_id, "rejected", "Отклонён", f'{user.name} отклонил "{doc.title}"', doc.id)
+    add_audit(db, user.id, user.name, "reject", "document", doc.id, f"{doc.title[:40]}: {data.comment[:40]}")
 
     db.commit()
     return doc_to_out(load_doc(db, doc.id))
@@ -1239,6 +1319,240 @@ def delete_route(route_id: int, db: Session = Depends(get_db), user: User = Depe
     if route:
         db.delete(route)
         db.commit()
+    return {"ok": True}
+
+
+# ============ AUDIT LOG ============
+
+@app.get("/api/audit-log", response_model=list[AuditLogOut])
+def list_audit_log(
+    limit: int = 100, offset: int = 0,
+    action: str = "", user_id: int = 0,
+    db: Session = Depends(get_db), user: User = Depends(get_current_user),
+):
+    if user.role != "admin":
+        raise HTTPException(403, "Только администратор")
+    q = db.query(AuditLog)
+    if action:
+        q = q.filter(AuditLog.action == action)
+    if user_id:
+        q = q.filter(AuditLog.user_id == user_id)
+    if limit > 500:
+        limit = 500
+    logs = q.order_by(AuditLog.created_at.desc()).offset(offset).limit(limit).all()
+    return [AuditLogOut.model_validate(l) for l in logs]
+
+
+# ============ CORRESPONDENCE (Incoming/Outgoing search) ============
+
+INCOMING_TYPES = [
+    "incoming_letter", "incoming_invoice", "incoming_act", "incoming_waybill",
+    "incoming_invoice_tax", "incoming_notification", "incoming_request",
+    "incoming_reconciliation", "incoming_contract",
+]
+OUTGOING_TYPES = [
+    "outgoing_letter", "outgoing_invoice", "outgoing_act", "outgoing_waybill",
+    "outgoing_invoice_tax", "outgoing_notification", "outgoing_request",
+    "outgoing_reconciliation", "outgoing_contract",
+]
+
+@app.get("/api/documents/correspondence")
+def search_correspondence(
+    direction: str = "incoming",  # incoming or outgoing
+    doc_type: str = "",
+    status: str = "",
+    q: str = "",
+    date_from: str = "",
+    date_to: str = "",
+    limit: int = 100, offset: int = 0,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    # Only accountant and admin
+    if user.role != "admin" and user.department != "Бухгалтерия":
+        raise HTTPException(403, "Доступ только для бухгалтерии и администратора")
+
+    types = INCOMING_TYPES if direction == "incoming" else OUTGOING_TYPES
+    query = db.query(Document).options(
+        joinedload(Document.author_user),
+        joinedload(Document.tags),
+    ).filter(Document.deleted == False, Document.doc_type.in_(types))
+
+    if doc_type:
+        query = query.filter(Document.doc_type == doc_type)
+    if status:
+        query = query.filter(Document.status == status)
+    if q:
+        search = f"%{q}%"
+        query = query.filter(
+            Document.title.ilike(search) | Document.number.ilike(search) |
+            Document.description.ilike(search) | Document.extra_fields.ilike(search)
+        )
+    if date_from:
+        try:
+            df = datetime.strptime(date_from, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+            query = query.filter(Document.created_at >= df)
+        except ValueError:
+            pass
+    if date_to:
+        try:
+            dt = datetime.strptime(date_to, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+            dt = dt.replace(hour=23, minute=59, second=59)
+            query = query.filter(Document.created_at <= dt)
+        except ValueError:
+            pass
+
+    if limit > 500:
+        limit = 500
+    docs = query.order_by(Document.created_at.desc()).offset(offset).limit(limit).all()
+
+    results = []
+    for d in docs:
+        extra = json.loads(d.extra_fields) if isinstance(d.extra_fields, str) else (d.extra_fields or {})
+        results.append({
+            "id": d.id, "number": d.number or "", "title": d.title,
+            "doc_type": d.doc_type, "status": d.status,
+            "author_name": d.author_user.name if d.author_user else "",
+            "created_at": str(d.created_at), "deadline": d.deadline or "",
+            "extra_fields": extra,
+        })
+    total = query.count() if not offset else len(results)
+    return {"results": results, "total": total}
+
+
+# ============ BULK OPERATIONS ============
+
+@app.post("/api/documents/bulk")
+def bulk_action(data: BulkAction, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    if not data.doc_ids:
+        raise HTTPException(400, "Не указаны документы")
+    if len(data.doc_ids) > 100:
+        raise HTTPException(400, "Максимум 100 документов за раз")
+    if data.action not in ("delete", "archive", "restore"):
+        raise HTTPException(400, "Неизвестное действие")
+
+    docs = db.query(Document).filter(Document.id.in_(data.doc_ids)).all()
+    processed = 0
+    for doc in docs:
+        if doc.author_id != user.id and user.role != "admin":
+            continue
+        if data.action == "delete":
+            doc.deleted = True
+            doc.updated_at = datetime.now(timezone.utc)
+            add_history(db, doc, user.name, "Перемещён в корзину (массово)")
+        elif data.action == "archive":
+            doc.status = "archived"
+            doc.updated_at = datetime.now(timezone.utc)
+            add_history(db, doc, user.name, "В архив (массово)")
+        elif data.action == "restore":
+            doc.deleted = False
+            doc.updated_at = datetime.now(timezone.utc)
+            add_history(db, doc, user.name, "Восстановлен (массово)")
+        processed += 1
+
+    add_audit(db, user.id, user.name, f"bulk_{data.action}", "document", details=f"{processed} документов")
+    db.commit()
+    return {"ok": True, "processed": processed}
+
+
+# ============ DOCUMENT TEMPLATES ============
+
+@app.get("/api/templates", response_model=list[TemplateOut])
+def list_templates(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    templates = db.query(DocumentTemplate).filter(
+        (DocumentTemplate.is_public == True) | (DocumentTemplate.author_id == user.id)
+    ).order_by(DocumentTemplate.created_at.desc()).all()
+    result = []
+    for t in templates:
+        out = TemplateOut.model_validate(t)
+        out.author_name = t.author.name if t.author else ""
+        out.extra_fields_template = json.loads(t.extra_fields_template) if isinstance(t.extra_fields_template, str) else (t.extra_fields_template or {})
+        result.append(out)
+    return result
+
+
+@app.post("/api/templates", response_model=TemplateOut)
+def create_template(data: TemplateCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    tmpl = DocumentTemplate(
+        name=sanitize(data.name),
+        doc_type=data.doc_type,
+        title_template=sanitize(data.title_template),
+        description_template=sanitize(data.description_template),
+        content_template=sanitize(data.content_template),
+        extra_fields_template=json.dumps(data.extra_fields_template or {}, ensure_ascii=False),
+        priority=data.priority,
+        approver_ids=",".join(str(x) for x in data.approver_ids),
+        sequential=data.sequential,
+        author_id=user.id,
+        is_public=data.is_public,
+    )
+    db.add(tmpl)
+    add_audit(db, user.id, user.name, "create", "template", details=data.name[:60])
+    db.commit()
+    db.refresh(tmpl)
+    out = TemplateOut.model_validate(tmpl)
+    out.author_name = user.name
+    out.extra_fields_template = json.loads(tmpl.extra_fields_template) if isinstance(tmpl.extra_fields_template, str) else {}
+    return out
+
+
+@app.post("/api/templates/{tmpl_id}/apply", response_model=DocumentOut)
+def apply_template(tmpl_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    tmpl = db.query(DocumentTemplate).filter(DocumentTemplate.id == tmpl_id).first()
+    if not tmpl:
+        raise HTTPException(404, "Шаблон не найден")
+    if not tmpl.is_public and tmpl.author_id != user.id:
+        raise HTTPException(403, "Нет доступа к шаблону")
+
+    number = gen_number(db, tmpl.doc_type)
+    doc = Document(
+        number=number,
+        title=tmpl.title_template or tmpl.name,
+        description=tmpl.description_template or "",
+        content=tmpl.content_template or "",
+        doc_type=tmpl.doc_type,
+        status="draft",
+        priority=tmpl.priority,
+        sequential=tmpl.sequential,
+        deadline="",
+        extra_fields=tmpl.extra_fields_template or "{}",
+        author_id=user.id,
+    )
+    db.add(doc)
+    db.flush()
+    add_history(db, doc, user.name, f"Создан из шаблона: {tmpl.name}")
+    add_audit(db, user.id, user.name, "apply_template", "document", doc.id, tmpl.name[:60])
+
+    # Add approvers from template
+    if tmpl.approver_ids:
+        ids = [int(x) for x in tmpl.approver_ids.split(",") if x.strip()]
+        for i, uid in enumerate(ids):
+            db.add(Approval(document_id=doc.id, user_id=uid, order_num=i))
+
+    db.commit()
+    return doc_to_out(load_doc(db, doc.id))
+
+
+@app.delete("/api/templates/{tmpl_id}")
+def delete_template(tmpl_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    tmpl = db.query(DocumentTemplate).filter(DocumentTemplate.id == tmpl_id).first()
+    if not tmpl:
+        raise HTTPException(404, "Шаблон не найден")
+    if tmpl.author_id != user.id and user.role != "admin":
+        raise HTTPException(403, "Нет прав")
+    db.delete(tmpl)
+    add_audit(db, user.id, user.name, "delete", "template", tmpl_id, tmpl.name[:60])
+    db.commit()
+    return {"ok": True}
+
+
+# ============ DEADLINE REMINDERS (manual trigger) ============
+
+@app.post("/api/reminders/check")
+def check_reminders(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    if user.role != "admin":
+        raise HTTPException(403, "Только администратор")
+    _process_deadline_reminders(db)
     return {"ok": True}
 
 

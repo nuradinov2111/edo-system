@@ -215,3 +215,39 @@ class Task(Base):
     document = relationship("Document", foreign_keys=[document_id])
     author = relationship("User", foreign_keys=[author_id])
     assignee = relationship("User", foreign_keys=[assignee_id])
+
+
+class AuditLog(Base):
+    __tablename__ = "audit_log"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    user_name = Column(String(200), default="")
+    action = Column(String(50), nullable=False)  # login, create, update, delete, approve, reject, etc.
+    entity_type = Column(String(50), default="")  # document, user, task, route, etc.
+    entity_id = Column(Integer, nullable=True)
+    details = Column(Text, default="")
+    ip_address = Column(String(50), default="")
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+    user = relationship("User")
+
+
+class DocumentTemplate(Base):
+    __tablename__ = "document_templates"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(300), nullable=False)
+    doc_type = Column(String(50), nullable=False)
+    title_template = Column(String(500), default="")
+    description_template = Column(Text, default="")
+    content_template = Column(Text, default="")
+    extra_fields_template = Column(Text, default="{}")
+    priority = Column(String(20), default="normal")
+    approver_ids = Column(Text, default="")  # comma-separated
+    sequential = Column(Boolean, default=False)
+    author_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    is_public = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+    author = relationship("User")

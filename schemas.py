@@ -259,3 +259,54 @@ class TaskOut(BaseModel):
     created_at: datetime
     updated_at: datetime
     model_config = {"from_attributes": True}
+
+
+# --- Audit Log ---
+class AuditLogOut(BaseModel):
+    id: int
+    user_id: int
+    user_name: str = ""
+    action: str
+    entity_type: str
+    entity_id: Optional[int] = None
+    details: str
+    ip_address: str = ""
+    created_at: datetime
+    model_config = {"from_attributes": True}
+
+
+# --- Document Template ---
+class TemplateCreate(BaseModel):
+    name: str
+    doc_type: str
+    title_template: str = ""
+    description_template: str = ""
+    content_template: str = ""
+    extra_fields_template: dict[str, Any] = {}
+    priority: str = "normal"
+    approver_ids: list[int] = []
+    sequential: bool = False
+    is_public: bool = True
+
+class TemplateOut(BaseModel):
+    id: int
+    name: str
+    doc_type: str
+    title_template: str
+    description_template: str
+    content_template: str
+    extra_fields_template: dict[str, Any] = {}
+    priority: str
+    approver_ids: str = ""
+    sequential: bool
+    author_id: int
+    author_name: str = ""
+    is_public: bool
+    created_at: datetime
+    model_config = {"from_attributes": True}
+
+
+# --- Bulk operations ---
+class BulkAction(BaseModel):
+    doc_ids: list[int]
+    action: str  # delete, archive, restore
