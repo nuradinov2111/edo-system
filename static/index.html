@@ -274,6 +274,9 @@ tr:hover td{background:var(--g50)}
       <div class="nav-section admin-only hidden">Администрирование</div>
       <button class="nav-item admin-only hidden" data-page="users" onclick="showPage('users')"><span>&#128101;</span> Сотрудники</button>
       <button class="nav-item admin-only hidden" data-page="settings" onclick="showPage('settings')"><span>&#9881;</span> Настройки</button>
+      <div class="nav-section">Бухгалтерия</div>
+      <button class="nav-item" data-page="incoming" onclick="showPage('incoming')"><span>&#128229;</span> Входящие</button>
+      <button class="nav-item" data-page="outgoing" onclick="showPage('outgoing')"><span>&#128228;</span> Исходящие</button>
       <div class="nav-section">Личное</div>
       <button class="nav-item" data-page="profile" onclick="showPage('profile')"><span>&#128100;</span> Профиль</button>
     </nav>
@@ -326,7 +329,9 @@ var TEMPLATES=[
 {name:'\u0414\u043e\u0432\u0435\u0440\u0435\u043d\u043d\u043e\u0441\u0442\u044c',icon:'&#128396;',desc:'\u0414\u043e\u0432\u0435\u0440\u0435\u043d\u043d\u043e\u0441\u0442\u044c \u043d\u0430 \u043f\u043e\u043b\u0443\u0447\u0435\u043d\u0438\u0435 \u0422\u041c\u0426',type:'power_of_attorney',content:'\u0414\u041e\u0412\u0415\u0420\u0415\u041d\u041d\u041e\u0421\u0422\u042c \u2116___\n\n\u043e\u0442 \u00AB___\u00BB ____________ 20__ \u0433.\n\u0414\u0435\u0439\u0441\u0442\u0432\u0438\u0442\u0435\u043b\u044c\u043d\u0430 \u043f\u043e \u00AB___\u00BB ____________ 20__ \u0433.\n\n\u041e\u0440\u0433\u0430\u043d\u0438\u0437\u0430\u0446\u0438\u044f: ___\n\u0418\u041d\u041d: ___\n\n\u0414\u043e\u0432\u0435\u0440\u0435\u043d\u043d\u043e\u0441\u0442\u044c \u0432\u044b\u0434\u0430\u043d\u0430: ___ (\u0424\u0418\u041e)\n\u0414\u043e\u043b\u0436\u043d\u043e\u0441\u0442\u044c: ___\n\u041f\u0430\u0441\u043f\u043e\u0440\u0442: \u0441\u0435\u0440\u0438\u044f ___ \u2116 ___\n\n\u041d\u0430 \u043f\u043e\u043b\u0443\u0447\u0435\u043d\u0438\u0435 \u043e\u0442: ___\n\u043f\u043e \u0434\u043e\u0433\u043e\u0432\u043e\u0440\u0443/\u0441\u0447\u0451\u0442\u0443 \u2116___\n\n\u2116 | \u041d\u0430\u0438\u043c\u0435\u043d\u043e\u0432\u0430\u043d\u0438\u0435 | \u0415\u0434. | \u041a\u043e\u043b-\u0432\u043e\n1. | ___ | ___ | ___\n\n\u041f\u043e\u0434\u043f\u0438\u0441\u044c \u0434\u043e\u0432\u0435\u0440\u0435\u043d\u043d\u043e\u0433\u043e \u043b\u0438\u0446\u0430: ___________\n\u0420\u0443\u043a\u043e\u0432\u043e\u0434\u0438\u0442\u0435\u043b\u044c: ___________ / ___\n\u0413\u043b. \u0431\u0443\u0445\u0433\u0430\u043b\u0442\u0435\u0440: ___________ / ___'},
 {name:'\u041a\u0430\u0441\u0441\u043e\u0432\u044b\u0439 \u043e\u0440\u0434\u0435\u0440',icon:'&#128181;',desc:'\u041f\u0440\u0438\u0445\u043e\u0434\u043d\u044b\u0439/\u0440\u0430\u0441\u0445\u043e\u0434\u043d\u044b\u0439 \u043a\u0430\u0441\u0441\u043e\u0432\u044b\u0439 \u043e\u0440\u0434\u0435\u0440',type:'cash_order',content:'\u041f\u0420\u0418\u0425\u041e\u0414\u041d\u042b\u0419 \u041a\u0410\u0421\u0421\u041e\u0412\u042b\u0419 \u041e\u0420\u0414\u0415\u0420 \u2116___\n\n\u043e\u0442 \u00AB___\u00BB ____________ 20__ \u0433.\n\n\u041f\u0440\u0438\u043d\u044f\u0442\u043e \u043e\u0442: ___\n\u041e\u0441\u043d\u043e\u0432\u0430\u043d\u0438\u0435: ___\n\u0421\u0443\u043c\u043c\u0430: ___ \u0440\u0443\u0431. ___ \u043a\u043e\u043f.\n\u0412 \u0442.\u0447. \u041d\u0414\u0421: ___\n\n\u0414\u0442 \u0441\u0447\u0451\u0442: ___\n\u041a\u0442 \u0441\u0447\u0451\u0442: ___\n\n\u041f\u0440\u0438\u043b\u043e\u0436\u0435\u043d\u0438\u0435: ___\n\n\u0413\u043b. \u0431\u0443\u0445\u0433\u0430\u043b\u0442\u0435\u0440: ___________ / ___\n\u041a\u0430\u0441\u0441\u0438\u0440: ___________ / ___'}
 ];
-var DOC_TYPES={contract:'\u0414\u043e\u0433\u043e\u0432\u043e\u0440',nda:'NDA',invoice:'\u0421\u0447\u0451\u0442 \u043d\u0430 \u043e\u043f\u043b\u0430\u0442\u0443',order:'\u041f\u0440\u0438\u043a\u0430\u0437',report:'\u041e\u0442\u0447\u0451\u0442',memo:'\u0421\u043b\u0443\u0436\u0435\u0431\u043d\u0430\u044f \u0437\u0430\u043f\u0438\u0441\u043a\u0430',protocol:'\u041f\u0440\u043e\u0442\u043e\u043a\u043e\u043b',letter:'\u041f\u0438\u0441\u044c\u043c\u043e',incoming_letter:'\u0412\u0445\u043e\u0434\u044f\u0449\u0435\u0435 \u043f\u0438\u0441\u044c\u043c\u043e',outgoing_letter:'\u0418\u0441\u0445\u043e\u0434\u044f\u0449\u0435\u0435 \u043f\u0438\u0441\u044c\u043c\u043e',vacation:'\u0417\u0430\u044f\u0432\u043b\u0435\u043d\u0438\u0435 \u043d\u0430 \u043e\u0442\u043f\u0443\u0441\u043a',trip:'\u041a\u043e\u043c\u0430\u043d\u0434\u0438\u0440\u043e\u0432\u043a\u0430',purchase:'\u0417\u0430\u044f\u0432\u043a\u0430 \u043d\u0430 \u0437\u0430\u043a\u0443\u043f\u043a\u0443',job_desc:'\u0414\u043e\u043b\u0436\u043d\u043e\u0441\u0442\u043d\u0430\u044f \u0438\u043d\u0441\u0442\u0440\u0443\u043a\u0446\u0438\u044f',act:'\u0410\u043a\u0442 \u0432\u044b\u043f\u043e\u043b\u043d\u0435\u043d\u043d\u044b\u0445 \u0440\u0430\u0431\u043e\u0442',regulation:'\u041f\u043e\u043b\u043e\u0436\u0435\u043d\u0438\u0435',statement:'\u0417\u0430\u044f\u0432\u043b\u0435\u043d\u0438\u0435',advance_report:'\u0410\u0432\u0430\u043d\u0441\u043e\u0432\u044b\u0439 \u043e\u0442\u0447\u0451\u0442',payment_order:'\u041f\u043b\u0430\u0442\u0451\u0436\u043d\u043e\u0435 \u043f\u043e\u0440\u0443\u0447\u0435\u043d\u0438\u0435',invoice_tax:'\u0421\u0447\u0451\u0442-\u0444\u0430\u043a\u0442\u0443\u0440\u0430',waybill:'\u0422\u043e\u0432\u0430\u0440\u043d\u0430\u044f \u043d\u0430\u043a\u043b\u0430\u0434\u043d\u0430\u044f',accounting_memo:'\u0411\u0443\u0445\u0433\u0430\u043b\u0442\u0435\u0440\u0441\u043a\u0430\u044f \u0441\u043f\u0440\u0430\u0432\u043a\u0430',power_of_attorney:'\u0414\u043e\u0432\u0435\u0440\u0435\u043d\u043d\u043e\u0441\u0442\u044c',cash_order:'\u041a\u0430\u0441\u0441\u043e\u0432\u044b\u0439 \u043e\u0440\u0434\u0435\u0440',other:'\u041f\u0440\u043e\u0447\u0435\u0435'};
+var DOC_TYPES={contract:'\u0414\u043e\u0433\u043e\u0432\u043e\u0440',nda:'NDA',invoice:'\u0421\u0447\u0451\u0442 \u043d\u0430 \u043e\u043f\u043b\u0430\u0442\u0443',order:'\u041f\u0440\u0438\u043a\u0430\u0437',report:'\u041e\u0442\u0447\u0451\u0442',memo:'\u0421\u043b\u0443\u0436\u0435\u0431\u043d\u0430\u044f \u0437\u0430\u043f\u0438\u0441\u043a\u0430',protocol:'\u041f\u0440\u043e\u0442\u043e\u043a\u043e\u043b',letter:'\u041f\u0438\u0441\u044c\u043c\u043e',incoming_letter:'\u0412\u0445\u043e\u0434\u044f\u0449\u0435\u0435 \u043f\u0438\u0441\u044c\u043c\u043e',outgoing_letter:'\u0418\u0441\u0445\u043e\u0434\u044f\u0449\u0435\u0435 \u043f\u0438\u0441\u044c\u043c\u043e',vacation:'\u0417\u0430\u044f\u0432\u043b\u0435\u043d\u0438\u0435 \u043d\u0430 \u043e\u0442\u043f\u0443\u0441\u043a',trip:'\u041a\u043e\u043c\u0430\u043d\u0434\u0438\u0440\u043e\u0432\u043a\u0430',purchase:'\u0417\u0430\u044f\u0432\u043a\u0430 \u043d\u0430 \u0437\u0430\u043a\u0443\u043f\u043a\u0443',job_desc:'\u0414\u043e\u043b\u0436\u043d\u043e\u0441\u0442\u043d\u0430\u044f \u0438\u043d\u0441\u0442\u0440\u0443\u043a\u0446\u0438\u044f',act:'\u0410\u043a\u0442 \u0432\u044b\u043f\u043e\u043b\u043d\u0435\u043d\u043d\u044b\u0445 \u0440\u0430\u0431\u043e\u0442',regulation:'\u041f\u043e\u043b\u043e\u0436\u0435\u043d\u0438\u0435',statement:'\u0417\u0430\u044f\u0432\u043b\u0435\u043d\u0438\u0435',advance_report:'\u0410\u0432\u0430\u043d\u0441\u043e\u0432\u044b\u0439 \u043e\u0442\u0447\u0451\u0442',payment_order:'\u041f\u043b\u0430\u0442\u0451\u0436\u043d\u043e\u0435 \u043f\u043e\u0440\u0443\u0447\u0435\u043d\u0438\u0435',invoice_tax:'\u0421\u0447\u0451\u0442-\u0444\u0430\u043a\u0442\u0443\u0440\u0430',waybill:'\u0422\u043e\u0432\u0430\u0440\u043d\u0430\u044f \u043d\u0430\u043a\u043b\u0430\u0434\u043d\u0430\u044f',accounting_memo:'\u0411\u0443\u0445\u0433\u0430\u043b\u0442\u0435\u0440\u0441\u043a\u0430\u044f \u0441\u043f\u0440\u0430\u0432\u043a\u0430',power_of_attorney:'\u0414\u043e\u0432\u0435\u0440\u0435\u043d\u043d\u043e\u0441\u0442\u044c',cash_order:'\u041a\u0430\u0441\u0441\u043e\u0432\u044b\u0439 \u043e\u0440\u0434\u0435\u0440',incoming_invoice:'\u0412\u0445. \u0441\u0447\u0451\u0442 \u043d\u0430 \u043e\u043f\u043b\u0430\u0442\u0443',incoming_act:'\u0412\u0445. \u0430\u043a\u0442 \u0432\u044b\u043f. \u0440\u0430\u0431\u043e\u0442',incoming_waybill:'\u0412\u0445. \u0442\u043e\u0432\u0430\u0440\u043d\u0430\u044f \u043d\u0430\u043a\u043b\u0430\u0434\u043d\u0430\u044f',incoming_invoice_tax:'\u0412\u0445. \u0441\u0447\u0451\u0442-\u0444\u0430\u043a\u0442\u0443\u0440\u0430',incoming_notification:'\u0412\u0445. \u0443\u0432\u0435\u0434\u043e\u043c\u043b\u0435\u043d\u0438\u0435',incoming_request:'\u0412\u0445. \u0442\u0440\u0435\u0431\u043e\u0432\u0430\u043d\u0438\u0435',incoming_reconciliation:'\u0412\u0445. \u0430\u043a\u0442 \u0441\u0432\u0435\u0440\u043a\u0438',incoming_contract:'\u0412\u0445. \u0434\u043e\u0433\u043e\u0432\u043e\u0440',outgoing_invoice:'\u0418\u0441\u0445. \u0441\u0447\u0451\u0442 \u043d\u0430 \u043e\u043f\u043b\u0430\u0442\u0443',outgoing_act:'\u0418\u0441\u0445. \u0430\u043a\u0442 \u0432\u044b\u043f. \u0440\u0430\u0431\u043e\u0442',outgoing_waybill:'\u0418\u0441\u0445. \u0442\u043e\u0432\u0430\u0440\u043d\u0430\u044f \u043d\u0430\u043a\u043b\u0430\u0434\u043d\u0430\u044f',outgoing_invoice_tax:'\u0418\u0441\u0445. \u0441\u0447\u0451\u0442-\u0444\u0430\u043a\u0442\u0443\u0440\u0430',outgoing_notification:'\u0418\u0441\u0445. \u0443\u0432\u0435\u0434\u043e\u043c\u043b\u0435\u043d\u0438\u0435',outgoing_request:'\u0418\u0441\u0445. \u0442\u0440\u0435\u0431\u043e\u0432\u0430\u043d\u0438\u0435',outgoing_reconciliation:'\u0418\u0441\u0445. \u0430\u043a\u0442 \u0441\u0432\u0435\u0440\u043a\u0438',outgoing_contract:'\u0418\u0441\u0445. \u0434\u043e\u0433\u043e\u0432\u043e\u0440',other:'\u041f\u0440\u043e\u0447\u0435\u0435'};
+var INCOMING_TYPES=['incoming_letter','incoming_invoice','incoming_act','incoming_waybill','incoming_invoice_tax','incoming_notification','incoming_request','incoming_reconciliation','incoming_contract'];
+var OUTGOING_TYPES=['outgoing_letter','outgoing_invoice','outgoing_act','outgoing_waybill','outgoing_invoice_tax','outgoing_notification','outgoing_request','outgoing_reconciliation','outgoing_contract'];
 var STATUSES={draft:'\u0427\u0435\u0440\u043d\u043e\u0432\u0438\u043a',pending:'\u041d\u0430 \u0441\u043e\u0433\u043b\u0430\u0441\u043e\u0432\u0430\u043d\u0438\u0438',approved:'\u0421\u043e\u0433\u043b\u0430\u0441\u043e\u0432\u0430\u043d',rejected:'\u041e\u0442\u043a\u043b\u043e\u043d\u0451\u043d',resolved:'\u0418\u0441\u043f\u043e\u043b\u043d\u0435\u043d',archived:'\u0410\u0440\u0445\u0438\u0432'};
 var PRIORITIES={low:'\u041d\u0438\u0437\u043a\u0438\u0439',medium:'\u0421\u0440\u0435\u0434\u043d\u0438\u0439',high:'\u0412\u044b\u0441\u043e\u043a\u0438\u0439',critical:'\u041a\u0440\u0438\u0442\u0438\u0447\u043d\u044b\u0439'};
 var TASK_STATUSES={pending:'\u041e\u0436\u0438\u0434\u0430\u0435\u0442',in_progress:'\u0412 \u0440\u0430\u0431\u043e\u0442\u0435',completed:'\u0412\u044b\u043f\u043e\u043b\u043d\u0435\u043d\u043e',cancelled:'\u041e\u0442\u043c\u0435\u043d\u0435\u043d\u043e'};
@@ -354,7 +359,23 @@ invoice_tax:[{key:'seller',label:'\u041f\u0440\u043e\u0434\u0430\u0432\u0435\u04
 waybill:[{key:'supplier',label:'\u041f\u043e\u0441\u0442\u0430\u0432\u0449\u0438\u043a',type:'text',required:true},{key:'receiver',label:'\u041f\u043e\u043b\u0443\u0447\u0430\u0442\u0435\u043b\u044c',type:'text',required:true},{key:'total_amount',label:'\u0421\u0443\u043c\u043c\u0430',type:'number'}],
 power_of_attorney:[{key:'person',label:'\u0414\u043e\u0432\u0435\u0440\u0435\u043d\u043d\u043e\u0435 \u043b\u0438\u0446\u043e',type:'text',required:true},{key:'valid_to',label:'\u0414\u0435\u0439\u0441\u0442\u0432\u0438\u0442\u0435\u043b\u044c\u043d\u0430 \u0434\u043e',type:'date',required:true},{key:'purpose',label:'\u041d\u0430\u0437\u043d\u0430\u0447\u0435\u043d\u0438\u0435',type:'text'}],
 cash_order:[{key:'order_type',label:'\u0422\u0438\u043f',type:'select',options:['\u041f\u0440\u0438\u0445\u043e\u0434\u043d\u044b\u0439','\u0420\u0430\u0441\u0445\u043e\u0434\u043d\u044b\u0439'],required:true},{key:'amount',label:'\u0421\u0443\u043c\u043c\u0430',type:'number',required:true},{key:'basis',label:'\u041e\u0441\u043d\u043e\u0432\u0430\u043d\u0438\u0435',type:'text'}],
-accounting_memo:[{key:'operation',label:'\u0421\u043e\u0434\u0435\u0440\u0436\u0430\u043d\u0438\u0435 \u043e\u043f\u0435\u0440\u0430\u0446\u0438\u0438',type:'text',required:true},{key:'amount',label:'\u0421\u0443\u043c\u043c\u0430',type:'number'},{key:'debit_account',label:'\u0414\u0442 \u0441\u0447\u0451\u0442',type:'text'},{key:'credit_account',label:'\u041a\u0442 \u0441\u0447\u0451\u0442',type:'text'}]
+accounting_memo:[{key:'operation',label:'\u0421\u043e\u0434\u0435\u0440\u0436\u0430\u043d\u0438\u0435 \u043e\u043f\u0435\u0440\u0430\u0446\u0438\u0438',type:'text',required:true},{key:'amount',label:'\u0421\u0443\u043c\u043c\u0430',type:'number'},{key:'debit_account',label:'\u0414\u0442 \u0441\u0447\u0451\u0442',type:'text'},{key:'credit_account',label:'\u041a\u0442 \u0441\u0447\u0451\u0442',type:'text'}],
+incoming_invoice:[{key:'sender',label:'\u041e\u0442\u043f\u0440\u0430\u0432\u0438\u0442\u0435\u043b\u044c',type:'text',required:true},{key:'incoming_number',label:'\u0412\u0445. \u2116',type:'text'},{key:'received_date',label:'\u0414\u0430\u0442\u0430 \u043f\u043e\u043b\u0443\u0447\u0435\u043d\u0438\u044f',type:'date'},{key:'amount',label:'\u0421\u0443\u043c\u043c\u0430',type:'number',required:true},{key:'currency',label:'\u0412\u0430\u043b\u044e\u0442\u0430',type:'select',options:['KGS','USD','RUB','EUR']},{key:'purpose',label:'\u041d\u0430\u0437\u043d\u0430\u0447\u0435\u043d\u0438\u0435',type:'text'}],
+incoming_act:[{key:'sender',label:'\u041a\u043e\u043d\u0442\u0440\u0430\u0433\u0435\u043d\u0442',type:'text',required:true},{key:'incoming_number',label:'\u0412\u0445. \u2116',type:'text'},{key:'received_date',label:'\u0414\u0430\u0442\u0430 \u043f\u043e\u043b\u0443\u0447\u0435\u043d\u0438\u044f',type:'date'},{key:'work_description',label:'\u041f\u0435\u0440\u0435\u0447\u0435\u043d\u044c \u0440\u0430\u0431\u043e\u0442',type:'textarea'},{key:'amount',label:'\u0421\u0443\u043c\u043c\u0430',type:'number'}],
+incoming_waybill:[{key:'supplier',label:'\u041f\u043e\u0441\u0442\u0430\u0432\u0449\u0438\u043a',type:'text',required:true},{key:'incoming_number',label:'\u0412\u0445. \u2116',type:'text'},{key:'received_date',label:'\u0414\u0430\u0442\u0430 \u043f\u043e\u043b\u0443\u0447\u0435\u043d\u0438\u044f',type:'date'},{key:'total_amount',label:'\u0421\u0443\u043c\u043c\u0430',type:'number'}],
+incoming_invoice_tax:[{key:'seller',label:'\u041f\u0440\u043e\u0434\u0430\u0432\u0435\u0446',type:'text',required:true},{key:'incoming_number',label:'\u0412\u0445. \u2116',type:'text'},{key:'received_date',label:'\u0414\u0430\u0442\u0430 \u043f\u043e\u043b\u0443\u0447\u0435\u043d\u0438\u044f',type:'date'},{key:'amount',label:'\u0421\u0443\u043c\u043c\u0430',type:'number'},{key:'nds',label:'\u041d\u0414\u0421',type:'number'}],
+incoming_notification:[{key:'sender',label:'\u041e\u0442\u043f\u0440\u0430\u0432\u0438\u0442\u0435\u043b\u044c',type:'text',required:true},{key:'incoming_number',label:'\u0412\u0445. \u2116',type:'text'},{key:'received_date',label:'\u0414\u0430\u0442\u0430 \u043f\u043e\u043b\u0443\u0447\u0435\u043d\u0438\u044f',type:'date'},{key:'notif_subject',label:'\u0422\u0435\u043c\u0430 \u0443\u0432\u0435\u0434\u043e\u043c\u043b\u0435\u043d\u0438\u044f',type:'text'}],
+incoming_request:[{key:'sender',label:'\u041e\u0442\u043f\u0440\u0430\u0432\u0438\u0442\u0435\u043b\u044c',type:'text',required:true},{key:'incoming_number',label:'\u0412\u0445. \u2116',type:'text'},{key:'received_date',label:'\u0414\u0430\u0442\u0430 \u043f\u043e\u043b\u0443\u0447\u0435\u043d\u0438\u044f',type:'date'},{key:'request_subject',label:'\u041f\u0440\u0435\u0434\u043c\u0435\u0442 \u0442\u0440\u0435\u0431\u043e\u0432\u0430\u043d\u0438\u044f',type:'text'},{key:'amount',label:'\u0421\u0443\u043c\u043c\u0430',type:'number'}],
+incoming_reconciliation:[{key:'counterparty',label:'\u041a\u043e\u043d\u0442\u0440\u0430\u0433\u0435\u043d\u0442',type:'text',required:true},{key:'incoming_number',label:'\u0412\u0445. \u2116',type:'text'},{key:'received_date',label:'\u0414\u0430\u0442\u0430 \u043f\u043e\u043b\u0443\u0447\u0435\u043d\u0438\u044f',type:'date'},{key:'period',label:'\u041f\u0435\u0440\u0438\u043e\u0434 \u0441\u0432\u0435\u0440\u043a\u0438',type:'text'},{key:'balance',label:'\u0421\u0430\u043b\u044c\u0434\u043e',type:'number'}],
+incoming_contract:[{key:'counterparty',label:'\u041a\u043e\u043d\u0442\u0440\u0430\u0433\u0435\u043d\u0442',type:'text',required:true},{key:'incoming_number',label:'\u0412\u0445. \u2116',type:'text'},{key:'received_date',label:'\u0414\u0430\u0442\u0430 \u043f\u043e\u043b\u0443\u0447\u0435\u043d\u0438\u044f',type:'date'},{key:'subject',label:'\u041f\u0440\u0435\u0434\u043c\u0435\u0442 \u0434\u043e\u0433\u043e\u0432\u043e\u0440\u0430',type:'text'},{key:'amount',label:'\u0421\u0443\u043c\u043c\u0430',type:'number'}],
+outgoing_invoice:[{key:'recipient',label:'\u041f\u043e\u043b\u0443\u0447\u0430\u0442\u0435\u043b\u044c',type:'text',required:true},{key:'outgoing_number',label:'\u0418\u0441\u0445. \u2116',type:'text'},{key:'send_date',label:'\u0414\u0430\u0442\u0430 \u043e\u0442\u043f\u0440\u0430\u0432\u043a\u0438',type:'date'},{key:'amount',label:'\u0421\u0443\u043c\u043c\u0430',type:'number',required:true},{key:'currency',label:'\u0412\u0430\u043b\u044e\u0442\u0430',type:'select',options:['KGS','USD','RUB','EUR']},{key:'purpose',label:'\u041d\u0430\u0437\u043d\u0430\u0447\u0435\u043d\u0438\u0435',type:'text'}],
+outgoing_act:[{key:'recipient',label:'\u0417\u0430\u043a\u0430\u0437\u0447\u0438\u043a',type:'text',required:true},{key:'outgoing_number',label:'\u0418\u0441\u0445. \u2116',type:'text'},{key:'send_date',label:'\u0414\u0430\u0442\u0430 \u043e\u0442\u043f\u0440\u0430\u0432\u043a\u0438',type:'date'},{key:'work_description',label:'\u041f\u0435\u0440\u0435\u0447\u0435\u043d\u044c \u0440\u0430\u0431\u043e\u0442',type:'textarea'},{key:'amount',label:'\u0421\u0443\u043c\u043c\u0430',type:'number'}],
+outgoing_waybill:[{key:'receiver',label:'\u041f\u043e\u043b\u0443\u0447\u0430\u0442\u0435\u043b\u044c',type:'text',required:true},{key:'outgoing_number',label:'\u0418\u0441\u0445. \u2116',type:'text'},{key:'send_date',label:'\u0414\u0430\u0442\u0430 \u043e\u0442\u043f\u0440\u0430\u0432\u043a\u0438',type:'date'},{key:'total_amount',label:'\u0421\u0443\u043c\u043c\u0430',type:'number'}],
+outgoing_invoice_tax:[{key:'buyer',label:'\u041f\u043e\u043a\u0443\u043f\u0430\u0442\u0435\u043b\u044c',type:'text',required:true},{key:'outgoing_number',label:'\u0418\u0441\u0445. \u2116',type:'text'},{key:'send_date',label:'\u0414\u0430\u0442\u0430 \u043e\u0442\u043f\u0440\u0430\u0432\u043a\u0438',type:'date'},{key:'amount',label:'\u0421\u0443\u043c\u043c\u0430',type:'number'},{key:'nds',label:'\u041d\u0414\u0421',type:'number'}],
+outgoing_notification:[{key:'recipient',label:'\u041f\u043e\u043b\u0443\u0447\u0430\u0442\u0435\u043b\u044c',type:'text',required:true},{key:'outgoing_number',label:'\u0418\u0441\u0445. \u2116',type:'text'},{key:'send_date',label:'\u0414\u0430\u0442\u0430 \u043e\u0442\u043f\u0440\u0430\u0432\u043a\u0438',type:'date'},{key:'notif_subject',label:'\u0422\u0435\u043c\u0430 \u0443\u0432\u0435\u0434\u043e\u043c\u043b\u0435\u043d\u0438\u044f',type:'text'},{key:'send_method',label:'\u0421\u043f\u043e\u0441\u043e\u0431 \u043e\u0442\u043f\u0440\u0430\u0432\u043a\u0438',type:'select',options:['\u041f\u043e\u0447\u0442\u0430','Email','\u041a\u0443\u0440\u044c\u0435\u0440','\u0424\u0430\u043a\u0441']}],
+outgoing_request:[{key:'recipient',label:'\u041f\u043e\u043b\u0443\u0447\u0430\u0442\u0435\u043b\u044c',type:'text',required:true},{key:'outgoing_number',label:'\u0418\u0441\u0445. \u2116',type:'text'},{key:'send_date',label:'\u0414\u0430\u0442\u0430 \u043e\u0442\u043f\u0440\u0430\u0432\u043a\u0438',type:'date'},{key:'request_subject',label:'\u041f\u0440\u0435\u0434\u043c\u0435\u0442 \u0442\u0440\u0435\u0431\u043e\u0432\u0430\u043d\u0438\u044f',type:'text'},{key:'amount',label:'\u0421\u0443\u043c\u043c\u0430',type:'number'}],
+outgoing_reconciliation:[{key:'counterparty',label:'\u041a\u043e\u043d\u0442\u0440\u0430\u0433\u0435\u043d\u0442',type:'text',required:true},{key:'outgoing_number',label:'\u0418\u0441\u0445. \u2116',type:'text'},{key:'send_date',label:'\u0414\u0430\u0442\u0430 \u043e\u0442\u043f\u0440\u0430\u0432\u043a\u0438',type:'date'},{key:'period',label:'\u041f\u0435\u0440\u0438\u043e\u0434 \u0441\u0432\u0435\u0440\u043a\u0438',type:'text'},{key:'balance',label:'\u0421\u0430\u043b\u044c\u0434\u043e',type:'number'}],
+outgoing_contract:[{key:'counterparty',label:'\u041a\u043e\u043d\u0442\u0440\u0430\u0433\u0435\u043d\u0442',type:'text',required:true},{key:'outgoing_number',label:'\u0418\u0441\u0445. \u2116',type:'text'},{key:'send_date',label:'\u0414\u0430\u0442\u0430 \u043e\u0442\u043f\u0440\u0430\u0432\u043a\u0438',type:'date'},{key:'subject',label:'\u041f\u0440\u0435\u0434\u043c\u0435\u0442 \u0434\u043e\u0433\u043e\u0432\u043e\u0440\u0430',type:'text'},{key:'amount',label:'\u0421\u0443\u043c\u043c\u0430',type:'number'}]
 };
 var TAG_COLORS=['tag-red','tag-blue','tag-green','tag-yellow','tag-purple','tag-pink'];
 
@@ -394,7 +415,7 @@ async function loadTasks(){try{allTasks=await api('/api/tasks');var myPending=al
 async function loadTrash(){try{trashDocs=await api('/api/documents/trash')}catch(e){trashDocs=[]}}
 function updateApprovalBadge(){var count=documents.filter(function(d){return canUserApprove(d)}).length;var badge=document.getElementById('approvalBadge');if(count>0){badge.textContent=count;badge.classList.remove('hidden')}else{badge.classList.add('hidden')}}
 
-function showPage(name,param){var adminPages=['kanban','calendar','analytics','archive','trash','users','settings'];if(currentUser&&currentUser.role!=='admin'&&adminPages.indexOf(name)>=0){name='documents'}currentPage=name;currentPageParam=param;selectedIds.clear();sortCol='';sortDir=1;if(name!=='detail')aiSetDoc(null);document.querySelectorAll('.nav-item').forEach(function(n){n.classList.toggle('active',n.dataset.page===name)});if(window.innerWidth<768)document.getElementById('sidebar').classList.remove('open');var pc=document.getElementById('pageContent');switch(name){case'dashboard':renderDashboard(pc);break;case'documents':renderDocuments(pc);break;case'create':renderCreateEdit(pc,param);break;case'detail':renderDetail(pc,param);break;case'approvals':renderApprovals(pc);break;case'kanban':renderKanban(pc);break;case'calendar':renderCalendar(pc);break;case'analytics':renderAnalytics(pc);break;case'archive':renderArchive(pc);break;case'notifications':renderNotifications(pc);break;case'users':renderUsers(pc);break;case'settings':renderSettings(pc);break;case'templates':renderTemplates(pc);break;case'tasks':renderTasks(pc);break;case'trash':renderTrash(pc);break;case'profile':renderProfile(pc);break;default:pc.innerHTML='<p>\u0421\u0442\u0440\u0430\u043d\u0438\u0446\u0430 \u043d\u0435 \u043d\u0430\u0439\u0434\u0435\u043d\u0430</p>'}}
+function showPage(name,param){var adminPages=['kanban','calendar','analytics','archive','trash','users','settings'];if(currentUser&&currentUser.role!=='admin'&&adminPages.indexOf(name)>=0){name='documents'}currentPage=name;currentPageParam=param;selectedIds.clear();sortCol='';sortDir=1;if(name!=='detail')aiSetDoc(null);document.querySelectorAll('.nav-item').forEach(function(n){n.classList.toggle('active',n.dataset.page===name)});if(window.innerWidth<768)document.getElementById('sidebar').classList.remove('open');var pc=document.getElementById('pageContent');switch(name){case'dashboard':renderDashboard(pc);break;case'documents':renderDocuments(pc);break;case'create':renderCreateEdit(pc,param);break;case'detail':renderDetail(pc,param);break;case'approvals':renderApprovals(pc);break;case'kanban':renderKanban(pc);break;case'calendar':renderCalendar(pc);break;case'analytics':renderAnalytics(pc);break;case'archive':renderArchive(pc);break;case'notifications':renderNotifications(pc);break;case'users':renderUsers(pc);break;case'settings':renderSettings(pc);break;case'templates':renderTemplates(pc);break;case'tasks':renderTasks(pc);break;case'trash':renderTrash(pc);break;case'profile':renderProfile(pc);break;case'incoming':renderIncoming(pc);break;case'outgoing':renderOutgoing(pc);break;default:pc.innerHTML='<p>\u0421\u0442\u0440\u0430\u043d\u0438\u0446\u0430 \u043d\u0435 \u043d\u0430\u0439\u0434\u0435\u043d\u0430</p>'}}
 
 function toggleSidebar(){document.getElementById('sidebar').classList.toggle('open')}
 function toggleTheme(){var t=document.documentElement.getAttribute('data-theme')==='dark'?'light':'dark';document.documentElement.setAttribute('data-theme',t);localStorage.setItem('edo-theme',t);var btn=document.querySelector('.theme-toggle');if(btn)btn.innerHTML=t==='dark'?'&#9728;':'&#127763;';btn.title=t==='dark'?'Светлая тема':'Тёмная тема'}
@@ -725,6 +746,134 @@ function renderTemplates(el){
   el.innerHTML='<h2 class="page-title">Шаблоны документов</h2><div class="templates-grid">'+ch+'</div>'
 }
 function useTemplate(idx){var t=TEMPLATES[idx];showPage('create');setTimeout(function(){var ti=document.getElementById('dfTitle'),ty=document.getElementById('dfType'),co=document.getElementById('dfContent');if(ti)ti.value=t.name;if(ty){ty.value=t.type;renderExtraFields()}if(co)co.value=t.content},50)}
+
+// ============ INCOMING / OUTGOING (Бухгалтерия) ============
+function renderCorrespondence(el, direction) {
+  var isIncoming = direction === 'incoming';
+  var title = isIncoming ? 'Входящие документы' : 'Исходящие документы';
+  var types = isIncoming ? INCOMING_TYPES : OUTGOING_TYPES;
+  var filtered = documents.filter(function(d) { return types.indexOf(d.doc_type) >= 0 });
+  var typeO = types.map(function(k) { return '<option value="' + k + '">' + esc(DOC_TYPES[k] || k) + '</option>' }).join('');
+  var so = Object.keys(STATUSES).map(function(k) { return '<option value="' + k + '">' + esc(STATUSES[k]) + '</option>' }).join('');
+  var counterpartyLabel = isIncoming ? 'Отправитель' : 'Получатель';
+  var numberLabel = isIncoming ? 'Вх. №' : 'Исх. №';
+
+  el.innerHTML = '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;flex-wrap:wrap;gap:.5rem">' +
+    '<h2 class="page-title" style="margin-bottom:0">' + title + '</h2>' +
+    '<div style="display:flex;gap:.5rem">' +
+    '<button class="btn btn-outline btn-sm" onclick="exportCorrespondenceCSV(\'' + direction + '\')">&#128229; CSV</button>' +
+    '<button class="btn btn-primary" onclick="showCorrespondenceCreate(\'' + direction + '\')">&#10010; ' + (isIncoming ? 'Зарегистрировать входящий' : 'Создать исходящий') + '</button>' +
+    '</div></div>' +
+    '<div class="filter-bar">' +
+    '<select id="corrFilterType" onchange="renderCorrTable(\'' + direction + '\')"><option value="">Все типы</option>' + typeO + '</select>' +
+    '<select id="corrFilterStatus" onchange="renderCorrTable(\'' + direction + '\')"><option value="">Все статусы</option>' + so + '</select>' +
+    '<input type="text" id="corrFilterSearch" placeholder="Поиск..." oninput="renderCorrTable(\'' + direction + '\')">' +
+    '<input type="date" id="corrFilterDateFrom" onchange="renderCorrTable(\'' + direction + '\')" title="Дата от">' +
+    '<input type="date" id="corrFilterDateTo" onchange="renderCorrTable(\'' + direction + '\')" title="Дата до">' +
+    '</div>' +
+    '<div class="stats-grid" style="margin-bottom:1rem">' +
+    '<div class="stat-card primary"><div class="stat-label">Всего</div><div class="stat-value" id="corrStatTotal">' + filtered.length + '</div></div>' +
+    '<div class="stat-card warning"><div class="stat-label">На согласовании</div><div class="stat-value" id="corrStatPending">' + filtered.filter(function(d){return d.status==='pending'}).length + '</div></div>' +
+    '<div class="stat-card success"><div class="stat-label">Согласовано</div><div class="stat-value" id="corrStatApproved">' + filtered.filter(function(d){return d.status==='approved'||d.status==='resolved'}).length + '</div></div>' +
+    '<div class="stat-card info"><div class="stat-label">Черновики</div><div class="stat-value" id="corrStatDraft">' + filtered.filter(function(d){return d.status==='draft'}).length + '</div></div>' +
+    '</div>' +
+    '<div class="card"><div class="card-body" style="padding:0"><div class="table-wrap"><table id="corrTable"></table></div></div></div>';
+  renderCorrTable(direction);
+}
+
+function renderCorrTable(direction) {
+  var types = direction === 'incoming' ? INCOMING_TYPES : OUTGOING_TYPES;
+  var filtered = documents.filter(function(d) { return types.indexOf(d.doc_type) >= 0 });
+  var tpE = document.getElementById('corrFilterType'), stE = document.getElementById('corrFilterStatus'),
+      sqE = document.getElementById('corrFilterSearch'), dfE = document.getElementById('corrFilterDateFrom'),
+      dtE = document.getElementById('corrFilterDateTo');
+  var tp = tpE ? tpE.value : '', st = stE ? stE.value : '', sq = sqE ? sqE.value.toLowerCase() : '',
+      df = dfE ? dfE.value : '', dt = dtE ? dtE.value : '';
+  if (tp) filtered = filtered.filter(function(d) { return d.doc_type === tp });
+  if (st) filtered = filtered.filter(function(d) { return d.status === st });
+  if (sq) filtered = filtered.filter(function(d) {
+    var ef = d.extra_fields || {};
+    var counterparty = ef.sender || ef.supplier || ef.seller || ef.counterparty || ef.recipient || ef.receiver || ef.buyer || '';
+    var regNum = ef.incoming_number || ef.outgoing_number || '';
+    return (d.title || '').toLowerCase().indexOf(sq) >= 0 || (d.number || '').toLowerCase().indexOf(sq) >= 0 ||
+           (d.author_name || '').toLowerCase().indexOf(sq) >= 0 || counterparty.toLowerCase().indexOf(sq) >= 0 ||
+           regNum.toLowerCase().indexOf(sq) >= 0
+  });
+  if (df) filtered = filtered.filter(function(d) { return (d.created_at || '') >= df });
+  if (dt) filtered = filtered.filter(function(d) { return (d.created_at || '').slice(0, 10) <= dt });
+
+  filtered.sort(function(a, b) { return new Date(b.created_at || 0) - new Date(a.created_at || 0) });
+
+  var isIncoming = direction === 'incoming';
+  var table = document.getElementById('corrTable');
+  if (!table) return;
+
+  var rows = filtered.map(function(d) {
+    var ef = d.extra_fields || {};
+    var counterparty = isIncoming ? (ef.sender || ef.supplier || ef.seller || ef.counterparty || '') : (ef.recipient || ef.receiver || ef.buyer || ef.counterparty || '');
+    var regNum = isIncoming ? (ef.incoming_number || '') : (ef.outgoing_number || '');
+    var regDate = isIncoming ? (ef.received_date || '') : (ef.send_date || '');
+    var amount = ef.amount || ef.total_amount || ef.balance || '';
+    var isO = d.author_id === currentUser.id || currentUser.role === 'admin';
+    return '<tr>' +
+      '<td>' + esc(d.number || d.id) + '</td>' +
+      '<td>' + esc(regNum) + '</td>' +
+      '<td><a href="#" onclick="event.preventDefault();showPage(\'detail\',' + d.id + ')" style="font-weight:600">' + esc(d.title) + '</a></td>' +
+      '<td>' + esc(DOC_TYPES[d.doc_type] || d.doc_type) + '</td>' +
+      '<td>' + esc(counterparty) + '</td>' +
+      '<td>' + statusBadge(d.status) + '</td>' +
+      '<td>' + (amount ? esc(String(amount)) : '\u2014') + '</td>' +
+      '<td>' + (regDate ? formatDate(regDate) : formatDate(d.created_at)) + '</td>' +
+      '<td style="white-space:nowrap">' +
+      '<button class="btn btn-outline btn-sm" onclick="showPage(\'detail\',' + d.id + ')" title="Просмотр">&#128065;</button>' +
+      (isO ? '<button class="btn btn-outline btn-sm" onclick="showPage(\'create\',' + d.id + ')" title="Редактировать">&#9998;</button>' : '') +
+      (isO ? '<button class="btn btn-danger btn-sm" onclick="deleteDoc(' + d.id + ')" title="Удалить">&#128465;</button>' : '') +
+      '</td></tr>'
+  }).join('');
+  if (filtered.length === 0) rows = '<tr><td colspan="9" style="text-align:center;padding:2rem;color:var(--text-secondary)">Документы не найдены</td></tr>';
+  table.innerHTML = '<thead><tr>' +
+    '<th>Рег. №</th>' +
+    '<th>' + (isIncoming ? 'Вх. №' : 'Исх. №') + '</th>' +
+    '<th>Название</th><th>Тип</th>' +
+    '<th>' + (isIncoming ? 'Отправитель' : 'Получатель') + '</th>' +
+    '<th>Статус</th><th>Сумма</th><th>Дата</th><th>Действия</th>' +
+    '</tr></thead><tbody>' + rows + '</tbody>';
+}
+
+function renderIncoming(el) { renderCorrespondence(el, 'incoming') }
+function renderOutgoing(el) { renderCorrespondence(el, 'outgoing') }
+
+function showCorrespondenceCreate(direction) {
+  var types = direction === 'incoming' ? INCOMING_TYPES : OUTGOING_TYPES;
+  showPage('create');
+  setTimeout(function() {
+    var typeEl = document.getElementById('dfType');
+    if (typeEl) {
+      typeEl.value = types[0];
+      renderExtraFields();
+      wizardSelectType(types[0]);
+    }
+  }, 50);
+}
+
+function exportCorrespondenceCSV(direction) {
+  var types = direction === 'incoming' ? INCOMING_TYPES : OUTGOING_TYPES;
+  var isIncoming = direction === 'incoming';
+  var filtered = documents.filter(function(d) { return types.indexOf(d.doc_type) >= 0 });
+  var csv = '\uFEFF"Рег. №","' + (isIncoming ? 'Вх. №' : 'Исх. №') + '","Название","Тип","' + (isIncoming ? 'Отправитель' : 'Получатель') + '","Статус","Сумма","Дата"\n';
+  filtered.forEach(function(d) {
+    var ef = d.extra_fields || {};
+    var counterparty = isIncoming ? (ef.sender || ef.supplier || ef.seller || ef.counterparty || '') : (ef.recipient || ef.receiver || ef.buyer || ef.counterparty || '');
+    var regNum = isIncoming ? (ef.incoming_number || '') : (ef.outgoing_number || '');
+    var amount = ef.amount || ef.total_amount || '';
+    csv += '"' + (d.number || d.id) + '","' + regNum + '","' + ((d.title || '').replace(/"/g, '""')) + '","' + (DOC_TYPES[d.doc_type] || d.doc_type) + '","' + counterparty.replace(/"/g, '""') + '","' + (STATUSES[d.status] || d.status) + '","' + amount + '","' + (d.created_at || '') + '"\n';
+  });
+  var blob = new Blob([csv], {type: 'text/csv;charset=utf-8;'});
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = direction + '_documents.csv';
+  a.click();
+}
 
 // ============ TASKS (Поручения) ============
 function renderTasks(el){

@@ -304,7 +304,16 @@ TYPE_PREFIX = {
     "act":"АКТ","regulation":"ПОЛ",
     "advance_report":"АО","payment_order":"ПП","invoice_tax":"СФ",
     "waybill":"ТН","accounting_memo":"БС","power_of_attorney":"ДОВ",
-    "cash_order":"КО","other":"ДОК",
+    "cash_order":"КО",
+    "incoming_invoice":"ВХ-СЧ","incoming_act":"ВХ-АКТ","incoming_waybill":"ВХ-ТН",
+    "incoming_invoice_tax":"ВХ-СФ","incoming_notification":"ВХ-УВ",
+    "incoming_request":"ВХ-ТР","incoming_reconciliation":"ВХ-АС",
+    "incoming_contract":"ВХ-ДОГ",
+    "outgoing_invoice":"ИСХ-СЧ","outgoing_act":"ИСХ-АКТ","outgoing_waybill":"ИСХ-ТН",
+    "outgoing_invoice_tax":"ИСХ-СФ","outgoing_notification":"ИСХ-УВ",
+    "outgoing_request":"ИСХ-ТР","outgoing_reconciliation":"ИСХ-АС",
+    "outgoing_contract":"ИСХ-ДОГ",
+    "other":"ДОК",
 }
 
 def gen_number(db: Session, doc_type: str) -> str:
@@ -1226,7 +1235,16 @@ DOC_TYPE_LABELS = {
     "nda":"NDA","advance_report":"Авансовый отчёт","payment_order":"Платёжное поручение",
     "invoice_tax":"Счёт-фактура","waybill":"Товарная накладная",
     "accounting_memo":"Бухгалтерская справка","power_of_attorney":"Доверенность",
-    "cash_order":"Кассовый ордер","other":"Прочее",
+    "cash_order":"Кассовый ордер",
+    "incoming_invoice":"Вх. счёт на оплату","incoming_act":"Вх. акт вып. работ",
+    "incoming_waybill":"Вх. товарная накладная","incoming_invoice_tax":"Вх. счёт-фактура",
+    "incoming_notification":"Вх. уведомление","incoming_request":"Вх. требование",
+    "incoming_reconciliation":"Вх. акт сверки","incoming_contract":"Вх. договор",
+    "outgoing_invoice":"Исх. счёт на оплату","outgoing_act":"Исх. акт вып. работ",
+    "outgoing_waybill":"Исх. товарная накладная","outgoing_invoice_tax":"Исх. счёт-фактура",
+    "outgoing_notification":"Исх. уведомление","outgoing_request":"Исх. требование",
+    "outgoing_reconciliation":"Исх. акт сверки","outgoing_contract":"Исх. договор",
+    "other":"Прочее",
 }
 STATUS_LABELS = {"draft":"Черновик","pending":"На согласовании","approved":"Согласован","rejected":"Отклонён","resolved":"Исполнен","archived":"Архив"}
 PRIORITY_LABELS = {"low":"Низкий","normal":"Обычный","high":"Высокий","urgent":"Срочный"}
