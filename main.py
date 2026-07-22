@@ -183,6 +183,10 @@ def run_migrations(eng):
                     conn.execute(text(f'ALTER TABLE {table} ADD COLUMN {col} {col_type}'))
         conn.commit()
 
+    # Ensure new tables exist
+    for table_name in ["audit_log", "document_templates"]:
+        if table_name not in existing_tables:
+            Base.metadata.create_all(bind=eng, tables=[Base.metadata.tables[table_name]])
 
 
 def _seed_data():
@@ -1448,9 +1452,17 @@ def list_audit_log(
 
 @app.get("/api/templates", response_model=list[TemplateOut])
 def list_templates(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    templates = db.query(DocumentTemplate).filter(
-        (DocumentTemplate.is_public == True) | (DocumentTemplate.author_id == user.id)
-    ).order_by(DocumentTemplate.created_at.desc()).all()
+    try:
+        templates = db.query(DocumentTemplate).filter(
+            (DocumentTemplate.is_public == True) | (DocumentTemplate.author_id == user.id)
+        ).order_by(DocumentTemplate.created_at.desc()).all()
+    except Exception:
+        # Table may not exist yet, try to create it
+        Base.metadata.create_all(bind=engine)
+        db.rollback()
+        templates = db.query(DocumentTemplate).filter(
+            (DocumentTemplate.is_public == True) | (DocumentTemplate.author_id == user.id)
+        ).order_by(DocumentTemplate.created_at.desc()).all()
     result = []
     for t in templates:
         out = TemplateOut.model_validate(t)
