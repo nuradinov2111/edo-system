@@ -64,6 +64,7 @@ class Document(Base):
     deadline = Column(String(20), default="")
     extra_fields = Column(Text, default="{}")
     deleted = Column(Boolean, default=False)
+    case_id = Column(Integer, ForeignKey("nomenclature_cases.id", ondelete="SET NULL"), nullable=True)
     author_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
@@ -251,3 +252,15 @@ class DocumentTemplate(Base):
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     author = relationship("User")
+
+
+class NomenclatureCase(Base):
+    __tablename__ = "nomenclature_cases"
+
+    id = Column(Integer, primary_key=True, index=True)
+    index = Column(String(50), nullable=False)  # e.g. "01-01", "02-03"
+    title = Column(String(500), nullable=False)
+    department = Column(String(200), default="")
+    retention_years = Column(Integer, default=5)
+    description = Column(Text, default="")
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))

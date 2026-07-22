@@ -9,7 +9,7 @@ from fastapi import Request
 from models import (
     User, Document, Tag, Approval, Comment, Notification,
     History, Version, Attachment, ApprovalRoute, doc_tags, doc_related, Task, Resolution,
-    AuditLog, DocumentTemplate,
+    AuditLog, DocumentTemplate, NomenclatureCase,
 )
 from schemas import (
     UserRegister, UserLogin, UserOut, UserOutPublic, Token, UserCreate, DeputySet,
@@ -18,6 +18,7 @@ from schemas import (
     TaskCreate, TaskUpdate, TaskOut, ResolutionOut, ResolutionCreate,
     ProfileUpdate, PasswordChange,
     AuditLogOut, TemplateCreate, TemplateOut, BulkAction,
+    NomenclatureCaseCreate, NomenclatureCaseOut,
 )
 from auth import hash_password, verify_password, create_token, get_current_user
 import secrets
@@ -186,9 +187,17 @@ def run_migrations(eng):
         conn.commit()
 
     # Ensure new tables exist
-    for table_name in ["audit_log", "document_templates"]:
+    for table_name in ["audit_log", "document_templates", "nomenclature_cases"]:
         if table_name not in existing_tables:
             Base.metadata.create_all(bind=eng, tables=[Base.metadata.tables[table_name]])
+
+    # Add case_id column to documents if missing
+    if "documents" in existing_tables:
+        cols = [c["name"] for c in insp.get_columns("documents")]
+        if "case_id" not in cols:
+            with eng.connect() as conn:
+                conn.execute(text("ALTER TABLE documents ADD COLUMN case_id INTEGER"))
+                conn.commit()
 
 
 def _renumber_correspondence():
@@ -514,8 +523,34 @@ def add_history(db: Session, doc: Document, user_name: str, text: str):
     db.add(History(document_id=doc.id, user_name=user_name, text=text))
 
 
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
+
+
+def send_telegram(chat_id: str, text: str):
+    """Send notification via Telegram Bot API (non-blocking)."""
+    if not TELEGRAM_BOT_TOKEN or not chat_id:
+        return
+    import threading
+    def _send():
+        try:
+            import urllib.request, urllib.parse
+            url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+            data = urllib.parse.urlencode({"chat_id": chat_id, "text": text, "parse_mode": "HTML"}).encode()
+            urllib.request.urlopen(url, data, timeout=10)
+        except Exception:
+            pass
+    threading.Thread(target=_send, daemon=True).start()
+
+
 def add_notification(db: Session, user_id: int, notif_type: str, title: str, message: str, doc_id: int = None):
     db.add(Notification(user_id=user_id, notif_type=notif_type, title=title, message=message, doc_id=doc_id))
+    # Send Telegram notification if configured
+    try:
+        user = db.query(User).filter(User.id == user_id).first()
+        if user and user.notify_telegram:
+            send_telegram(user.notify_telegram, f"<b>{title}</b>\n{message}")
+    except Exception:
+        pass
 
 
 @app.get("/api/documents", response_model=list[DocumentOut])
@@ -735,11 +770,15 @@ def search_documents(
 
     if q:
         search = f"%{q}%"
+        # Полнотекстовый поиск: заголовок, содержимое, номер, описание, доп. поля, комментарии
+        comment_doc_ids = db.query(Comment.document_id).filter(Comment.text.ilike(search)).subquery()
         query = query.filter(
             Document.title.ilike(search) |
             Document.content.ilike(search) |
             Document.number.ilike(search) |
-            Document.description.ilike(search)
+            Document.description.ilike(search) |
+            Document.extra_fields.ilike(search) |
+            Document.id.in_(comment_doc_ids)
         )
     if doc_type:
         query = query.filter(Document.doc_type == doc_type)
@@ -2060,6 +2099,161 @@ async def upload_correspondence(
     add_audit(db, user.id, user.name, "upload_correspondence", "document", doc.id, f"{dir_label} №{number}")
     db.commit()
     return doc_to_out(load_doc(db, doc.id))
+
+
+# ============ REGISTRATION JOURNAL (Журнал регистрации) ============
+
+@app.get("/api/journal/{direction}")
+def get_registration_journal(
+    direction: str,
+    date_from: str = "",
+    date_to: str = "",
+    doc_type: str = "",
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Журнал регистрации входящих/исходящих документов."""
+    types = INCOMING_TYPES if direction == "incoming" else OUTGOING_TYPES
+    query = db.query(Document).options(
+        joinedload(Document.author_user),
+        joinedload(Document.approvals).joinedload(Approval.user),
+    ).filter(Document.doc_type.in_(types), Document.deleted == False)
+
+    if doc_type and doc_type in types:
+        query = query.filter(Document.doc_type == doc_type)
+    if date_from:
+        try:
+            df = datetime.strptime(date_from, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+            query = query.filter(Document.created_at >= df)
+        except ValueError:
+            pass
+    if date_to:
+        try:
+            dt = datetime.strptime(date_to, "%Y-%m-%d").replace(tzinfo=timezone.utc, hour=23, minute=59, second=59)
+            query = query.filter(Document.created_at <= dt)
+        except ValueError:
+            pass
+
+    docs = query.order_by(Document.created_at.asc()).all()
+    is_incoming = direction == "incoming"
+    entries = []
+    for d in docs:
+        ef = json.loads(d.extra_fields) if isinstance(d.extra_fields, str) else (d.extra_fields or {})
+        counterparty = ef.get("sender") or ef.get("supplier") or ef.get("seller") or ef.get("counterparty") or ef.get("recipient") or ef.get("receiver") or ef.get("buyer") or ""
+        reg_num = ef.get("incoming_number") or ef.get("outgoing_number") or ""
+        reg_date = ef.get("received_date") or ef.get("send_date") or ""
+        amount = ef.get("amount") or ef.get("total_amount") or ""
+        approvers = ", ".join(a.user.name for a in d.approvals if a.user) if d.approvals else ""
+        status_text = {"draft": "Черновик", "pending": "На согласовании", "approved": "Согласован", "rejected": "Отклонён", "archived": "Архив", "resolved": "Исполнен"}.get(d.status, d.status)
+        entries.append({
+            "id": d.id,
+            "reg_number": d.number or "",
+            "ext_number": reg_num,
+            "date": str(d.created_at.strftime("%d.%m.%Y %H:%M") if d.created_at else ""),
+            "ext_date": reg_date,
+            "title": d.title,
+            "doc_type": d.doc_type,
+            "counterparty": counterparty,
+            "author": d.author_user.name if d.author_user else "",
+            "amount": str(amount) if amount else "",
+            "status": status_text,
+            "approvers": approvers,
+            "description": (d.description or "")[:100],
+        })
+    return {"direction": direction, "entries": entries, "total": len(entries)}
+
+
+# ============ NOMENCLATURE (Номенклатура дел) ============
+
+@app.get("/api/nomenclature")
+def list_nomenclature(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    from sqlalchemy import func
+    cases = db.query(NomenclatureCase).order_by(NomenclatureCase.index).all()
+    # Count docs per case
+    counts = dict(db.query(Document.case_id, func.count(Document.id)).filter(
+        Document.case_id.isnot(None), Document.deleted == False
+    ).group_by(Document.case_id).all())
+    result = []
+    for c in cases:
+        result.append({
+            "id": c.id, "index": c.index, "title": c.title,
+            "department": c.department or "", "retention_years": c.retention_years,
+            "description": c.description or "",
+            "created_at": c.created_at.isoformat() if c.created_at else "",
+            "doc_count": counts.get(c.id, 0),
+        })
+    return result
+
+
+@app.post("/api/nomenclature")
+def create_nomenclature(data: NomenclatureCaseCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    if user.role != "admin":
+        raise HTTPException(403, "Только администратор может управлять номенклатурой")
+    case = NomenclatureCase(
+        index=sanitize(data.index), title=sanitize(data.title),
+        department=sanitize(data.department), retention_years=data.retention_years,
+        description=sanitize(data.description),
+    )
+    db.add(case)
+    add_audit(db, user.id, user.name, "create", "nomenclature", details=f"{data.index}: {data.title[:40]}")
+    db.commit()
+    db.refresh(case)
+    return {"id": case.id, "index": case.index, "title": case.title,
+            "department": case.department, "retention_years": case.retention_years,
+            "description": case.description, "created_at": case.created_at.isoformat(), "doc_count": 0}
+
+
+@app.put("/api/nomenclature/{case_id}")
+def update_nomenclature(case_id: int, data: NomenclatureCaseCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    if user.role != "admin":
+        raise HTTPException(403, "Только администратор")
+    case = db.query(NomenclatureCase).filter(NomenclatureCase.id == case_id).first()
+    if not case:
+        raise HTTPException(404, "Дело не найдено")
+    case.index = sanitize(data.index)
+    case.title = sanitize(data.title)
+    case.department = sanitize(data.department)
+    case.retention_years = data.retention_years
+    case.description = sanitize(data.description)
+    db.commit()
+    return {"ok": True}
+
+
+@app.delete("/api/nomenclature/{case_id}")
+def delete_nomenclature(case_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    if user.role != "admin":
+        raise HTTPException(403, "Только администратор")
+    case = db.query(NomenclatureCase).filter(NomenclatureCase.id == case_id).first()
+    if not case:
+        raise HTTPException(404, "Дело не найдено")
+    # Unlink documents
+    db.query(Document).filter(Document.case_id == case_id).update({"case_id": None})
+    db.delete(case)
+    add_audit(db, user.id, user.name, "delete", "nomenclature", case_id, f"{case.index}: {case.title[:40]}")
+    db.commit()
+    return {"ok": True}
+
+
+@app.post("/api/documents/{doc_id}/assign-case")
+def assign_doc_to_case(doc_id: int, case_id: int = 0, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """Привязать документ к делу номенклатуры."""
+    doc = db.query(Document).filter(Document.id == doc_id).first()
+    if not doc:
+        raise HTTPException(404, "Документ не найден")
+    if case_id:
+        case = db.query(NomenclatureCase).filter(NomenclatureCase.id == case_id).first()
+        if not case:
+            raise HTTPException(404, "Дело не найдено")
+    doc.case_id = case_id if case_id else None
+    db.commit()
+    return {"ok": True}
+
+
+@app.get("/api/nomenclature/{case_id}/documents")
+def get_case_documents(case_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """Получить документы, привязанные к делу."""
+    docs = db.query(Document).filter(Document.case_id == case_id, Document.deleted == False).order_by(Document.created_at.desc()).all()
+    return [{"id": d.id, "number": d.number or "", "title": d.title, "doc_type": d.doc_type, "status": d.status, "created_at": str(d.created_at)} for d in docs]
 
 
 # ============ AI ASSISTANT (Groq + Llama) ============

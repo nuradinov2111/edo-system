@@ -310,3 +310,23 @@ class TemplateOut(BaseModel):
 class BulkAction(BaseModel):
     doc_ids: list[int]
     action: str  # delete, archive, restore
+
+
+# --- Nomenclature ---
+class NomenclatureCaseCreate(BaseModel):
+    index: str
+    title: str
+    department: str = ""
+    retention_years: int = 5
+    description: str = ""
+
+class NomenclatureCaseOut(BaseModel):
+    id: int
+    index: str
+    title: str
+    department: str
+    retention_years: int
+    description: str
+    created_at: datetime
+    doc_count: int = 0
+    model_config = {"from_attributes": True}

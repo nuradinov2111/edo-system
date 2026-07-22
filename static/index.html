@@ -278,6 +278,8 @@ tr:hover td{background:var(--g50)}
       <div class="nav-section buh-only hidden">Бухгалтерия</div>
       <button class="nav-item buh-only hidden" data-page="incoming" onclick="showPage('incoming')"><span>&#128229;</span> Входящие</button>
       <button class="nav-item buh-only hidden" data-page="outgoing" onclick="showPage('outgoing')"><span>&#128228;</span> Исходящие</button>
+      <button class="nav-item buh-only hidden" data-page="journal" onclick="showPage('journal')"><span>&#128214;</span> Журнал регистрации</button>
+      <button class="nav-item admin-only hidden" data-page="nomenclature" onclick="showPage('nomenclature')"><span>&#128193;</span> Номенклатура дел</button>
       <div class="nav-section">Личное</div>
       <button class="nav-item" data-page="profile" onclick="showPage('profile')"><span>&#128100;</span> Профиль</button>
     </nav>
@@ -416,7 +418,7 @@ async function loadTasks(){try{allTasks=await api('/api/tasks');var myPending=al
 async function loadTrash(){try{trashDocs=await api('/api/documents/trash')}catch(e){trashDocs=[]}}
 function updateApprovalBadge(){var count=documents.filter(function(d){return canUserApprove(d)}).length;var badge=document.getElementById('approvalBadge');if(count>0){badge.textContent=count;badge.classList.remove('hidden')}else{badge.classList.add('hidden')}}
 
-function showPage(name,param){var adminPages=['kanban','calendar','analytics','archive','trash','users','settings','audit'];if(currentUser&&currentUser.role!=='admin'&&adminPages.indexOf(name)>=0){name='documents'}var buhPages=['incoming','outgoing'];if(currentUser&&buhPages.indexOf(name)>=0&&currentUser.role!=='admin'&&currentUser.department!=='Бухгалтерия'){name='documents'}currentPage=name;currentPageParam=param;selectedIds.clear();sortCol='';sortDir=1;if(name!=='detail')aiSetDoc(null);document.querySelectorAll('.nav-item').forEach(function(n){n.classList.toggle('active',n.dataset.page===name)});if(window.innerWidth<768)document.getElementById('sidebar').classList.remove('open');var pc=document.getElementById('pageContent');switch(name){case'dashboard':renderDashboard(pc);break;case'documents':renderDocuments(pc);break;case'create':renderCreateEdit(pc,param);break;case'detail':renderDetail(pc,param);break;case'approvals':renderApprovals(pc);break;case'kanban':renderKanban(pc);break;case'calendar':renderCalendar(pc);break;case'analytics':renderAnalytics(pc);break;case'archive':renderArchive(pc);break;case'notifications':renderNotifications(pc);break;case'users':renderUsers(pc);break;case'settings':renderSettings(pc);break;case'templates':renderTemplates(pc);break;case'tasks':renderTasks(pc);break;case'trash':renderTrash(pc);break;case'profile':renderProfile(pc);break;case'incoming':renderIncoming(pc);break;case'outgoing':renderOutgoing(pc);break;case'audit':renderAuditLog(pc);break;default:pc.innerHTML='<p>\u0421\u0442\u0440\u0430\u043d\u0438\u0446\u0430 \u043d\u0435 \u043d\u0430\u0439\u0434\u0435\u043d\u0430</p>'}}
+function showPage(name,param){var adminPages=['kanban','calendar','analytics','archive','trash','users','settings','audit','nomenclature'];if(currentUser&&currentUser.role!=='admin'&&adminPages.indexOf(name)>=0){name='documents'}var buhPages=['incoming','outgoing','journal'];if(currentUser&&buhPages.indexOf(name)>=0&&currentUser.role!=='admin'&&currentUser.department!=='Бухгалтерия'){name='documents'}currentPage=name;currentPageParam=param;selectedIds.clear();sortCol='';sortDir=1;if(name!=='detail')aiSetDoc(null);document.querySelectorAll('.nav-item').forEach(function(n){n.classList.toggle('active',n.dataset.page===name)});if(window.innerWidth<768)document.getElementById('sidebar').classList.remove('open');var pc=document.getElementById('pageContent');switch(name){case'dashboard':renderDashboard(pc);break;case'documents':renderDocuments(pc);break;case'create':renderCreateEdit(pc,param);break;case'detail':renderDetail(pc,param);break;case'approvals':renderApprovals(pc);break;case'kanban':renderKanban(pc);break;case'calendar':renderCalendar(pc);break;case'analytics':renderAnalytics(pc);break;case'archive':renderArchive(pc);break;case'notifications':renderNotifications(pc);break;case'users':renderUsers(pc);break;case'settings':renderSettings(pc);break;case'templates':renderTemplates(pc);break;case'tasks':renderTasks(pc);break;case'trash':renderTrash(pc);break;case'profile':renderProfile(pc);break;case'incoming':renderIncoming(pc);break;case'outgoing':renderOutgoing(pc);break;case'audit':renderAuditLog(pc);break;case'journal':renderJournal(pc);break;case'nomenclature':renderNomenclature(pc);break;default:pc.innerHTML='<p>\u0421\u0442\u0440\u0430\u043d\u0438\u0446\u0430 \u043d\u0435 \u043d\u0430\u0439\u0434\u0435\u043d\u0430</p>'}}
 
 function toggleSidebar(){document.getElementById('sidebar').classList.toggle('open')}
 function toggleTheme(){var t=document.documentElement.getAttribute('data-theme')==='dark'?'light':'dark';document.documentElement.setAttribute('data-theme',t);localStorage.setItem('edo-theme',t);var btn=document.querySelector('.theme-toggle');if(btn)btn.innerHTML=t==='dark'?'&#9728;':'&#127763;';btn.title=t==='dark'?'Светлая тема':'Тёмная тема'}
@@ -495,7 +497,7 @@ function renderDocTable(){
   if(st)filtered=filtered.filter(function(d){return d.status===st});
   if(tp)filtered=filtered.filter(function(d){return d.doc_type===tp});
   if(tg)filtered=filtered.filter(function(d){return d.tags&&d.tags.some(function(t){return t.id===parseInt(tg)})});
-  if(sq)filtered=filtered.filter(function(d){return(d.title||'').toLowerCase().indexOf(sq)>=0||(d.number||'').toLowerCase().indexOf(sq)>=0||(d.author_name||'').toLowerCase().indexOf(sq)>=0});
+  if(sq)filtered=filtered.filter(function(d){var ef=d.extra_fields||{};var efStr=Object.values(ef).join(' ').toLowerCase();return(d.title||'').toLowerCase().indexOf(sq)>=0||(d.number||'').toLowerCase().indexOf(sq)>=0||(d.author_name||'').toLowerCase().indexOf(sq)>=0||(d.description||'').toLowerCase().indexOf(sq)>=0||(d.content||'').toLowerCase().indexOf(sq)>=0||efStr.indexOf(sq)>=0});
   if(sortCol){filtered.sort(function(a,b){var va=a[sortCol],vb=b[sortCol];if(sortCol==='title'||sortCol==='author_name'||sortCol==='status'||sortCol==='doc_type')return((va||'').localeCompare(vb||''))*sortDir;if(sortCol==='deadline'||sortCol==='created_at')return((new Date(va||0))-(new Date(vb||0)))*sortDir;return 0})}
   function arrow(col){return sortCol===col?(sortDir===1?' &#9650;':' &#9660;'):''}
   var table=document.getElementById('docTable');if(!table)return;
@@ -614,6 +616,7 @@ function renderDetail(el,docId){
   actH+='<button class="btn btn-outline btn-block" onclick="exportDoc('+doc.id+',\'docx\')">&#128462; \u0421\u043a\u0430\u0447\u0430\u0442\u044c Word</button>';
   actH+='<button class="btn btn-outline btn-block" onclick="saveDocAsTemplate('+doc.id+')">&#128203; \u0421\u043e\u0445\u0440\u0430\u043d\u0438\u0442\u044c \u043a\u0430\u043a \u0448\u0430\u0431\u043b\u043e\u043d</button>';
   actH+='<button class="btn btn-outline btn-block" onclick="printDoc('+doc.id+')">&#128424; \u041f\u0435\u0447\u0430\u0442\u044c</button>';
+  if(currentUser&&currentUser.role==='admin')actH+='<button class="btn btn-outline btn-block" onclick="assignToCase('+doc.id+')">&#128193; \u041d\u043e\u043c\u0435\u043d\u043a\u043b\u0430\u0442\u0443\u0440\u0430</button>';
   el.innerHTML='<div style="margin-bottom:1rem"><a href="#" onclick="event.preventDefault();showPage(\'documents\')" style="font-size:.8125rem">&larr; Назад к документам</a></div><div style="display:flex;align-items:center;gap:.75rem;margin-bottom:1.25rem;flex-wrap:wrap"><h2 style="font-size:1.5rem;font-weight:700;margin:0">'+esc(doc.title)+'</h2><span style="color:var(--text-secondary);font-size:.875rem">'+esc(doc.number||'#'+doc.id)+'</span>'+statusBadge(doc.status)+' '+tagsH+'</div><div class="doc-detail"><div class="doc-main"><div class="card" style="margin-bottom:1rem"><div class="card-header">Информация</div><div class="card-body"><div class="info-grid"><div class="info-label">Тип</div><div class="info-value">'+esc(DOC_TYPES[doc.doc_type]||doc.doc_type)+'</div><div class="info-label">Автор</div><div class="info-value">'+esc(doc.author_name)+'</div><div class="info-label">Номер</div><div class="info-value">'+esc(doc.number||'\u2014')+'</div><div class="info-label">Приоритет</div><div class="info-value">'+(priorityBadge(doc.priority)||'\u2014')+'</div><div class="info-label">Создан</div><div class="info-value">'+formatDateTime(doc.created_at)+'</div><div class="info-label">Обновл\u0451н</div><div class="info-value">'+formatDateTime(doc.updated_at)+'</div><div class="info-label">Дедлайн</div><div class="info-value">'+(doc.deadline?formatDate(doc.deadline):'\u2014')+'</div><div class="info-label">Описание</div><div class="info-value">'+(esc(doc.description)||'\u2014')+'</div></div>'+extraH+attH+'</div></div><div class="card" style="margin-bottom:1rem"><div class="card-header">Содержание</div><div class="card-body"><div class="content-block">'+esc(doc.content)+'</div></div></div>'+relH+'<div class="card"><div class="card-header">Комментарии ('+(doc.comments||[]).length+')</div><div class="card-body">'+comH+'<form onsubmit="return addComment(event,'+doc.id+')" style="margin-top:1rem;display:flex;gap:.5rem"><input type="text" id="commentText" placeholder="Добавить комментарий..." style="flex:1;padding:.5rem .75rem;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg);color:var(--text)"><button class="btn btn-primary" type="submit">Отправить</button></form></div></div></div><div class="doc-sidebar-panel"><div class="card"><div class="card-header">Действия</div><div class="card-body" style="display:flex;flex-direction:column;gap:.375rem">'+actH+'</div></div><div class="card"><div class="card-header">Согласование</div><div class="card-body">'+apH+'</div></div>'+resH+'<div class="card"><div class="card-header">QR-код</div><div class="card-body" style="text-align:center"><div style="width:120px;height:120px;background:var(--g200);border-radius:var(--radius);margin:0 auto;display:flex;align-items:center;justify-content:center;font-size:.75rem;color:var(--text-secondary)">QR-код</div></div></div>'+hisH+verH+'</div></div>'
 }
 async function addComment(e,docId){e.preventDefault();var text=document.getElementById('commentText').value.trim();if(!text)return false;try{await api('/api/documents/'+docId+'/comments',{method:'POST',body:{text:text}});toast('Комментарий добавлен','success');await loadDocs();showPage('detail',docId)}catch(err){toast(err.message,'error')}return false}
@@ -1113,6 +1116,121 @@ async function aiGenerate(){
 }
 
 function aiClear(){aiHistory=[];aiCurrentDocId=null;aiRender();aiAddMsg('system','История очищена. Задайте новый вопрос.')}
+
+// ============ ASSIGN TO NOMENCLATURE ============
+async function assignToCase(docId){
+  try{var cases=await api('/api/nomenclature')}catch(e){cases=[]}
+  if(!cases.length){toast('Сначала создайте дела в номенклатуре','warning');return}
+  var opts=cases.map(function(c){return '<option value="'+c.id+'">'+esc(c.index+' - '+c.title)+'</option>'}).join('');
+  var ov=document.createElement('div');ov.className='modal-overlay';ov.onclick=function(e){if(e.target===ov)ov.remove()};
+  ov.innerHTML='<div class="modal-card"><div class="modal-header"><h3>Привязать к делу</h3><button class="modal-close" onclick="this.closest(\'.modal-overlay\').remove()">&times;</button></div>'+
+    '<div class="modal-body"><div class="form-group"><label>Дело номенклатуры</label><select id="assignCaseId" class="form-control"><option value="0">— Без дела —</option>'+opts+'</select></div></div>'+
+    '<div class="modal-footer"><button class="btn btn-outline" onclick="this.closest(\'.modal-overlay\').remove()">Отмена</button>'+
+    '<button class="btn btn-primary" id="assignCaseBtn">Привязать</button></div></div>';
+  document.body.appendChild(ov);
+  document.getElementById('assignCaseBtn').onclick=async function(){
+    var caseId=parseInt(document.getElementById('assignCaseId').value)||0;
+    try{await api('/api/documents/'+docId+'/assign-case?case_id='+caseId,{method:'POST'});ov.remove();toast('Документ привязан к делу','success')}catch(e){toast(e.message,'error')}
+  };
+}
+
+// ============ REGISTRATION JOURNAL ============
+var journalDirection='incoming';
+async function renderJournal(el){
+  var dirBtns='<button class="btn '+(journalDirection==='incoming'?'btn-primary':'btn-outline')+' btn-sm" onclick="journalDirection=\'incoming\';renderJournal(document.getElementById(\'pageContent\'))">Входящие</button>'+
+    '<button class="btn '+(journalDirection==='outgoing'?'btn-primary':'btn-outline')+' btn-sm" onclick="journalDirection=\'outgoing\';renderJournal(document.getElementById(\'pageContent\'))">Исходящие</button>';
+  el.innerHTML='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;flex-wrap:wrap;gap:.5rem"><h2 class="page-title" style="margin-bottom:0">Журнал регистрации</h2><div style="display:flex;gap:.5rem">'+dirBtns+'<button class="btn btn-outline btn-sm" onclick="printJournal()">&#128424; Печать журнала</button></div></div>'+
+    '<div class="filter-bar"><input type="date" id="jDateFrom" title="Дата от"><input type="date" id="jDateTo" title="Дата до"><button class="btn btn-primary btn-sm" onclick="loadJournal()">Показать</button></div>'+
+    '<div class="card"><div class="card-body" style="padding:0"><div class="table-wrap"><table id="journalTable"><tbody><tr><td style="text-align:center;padding:2rem">Нажмите "Показать" для загрузки журнала</td></tr></tbody></table></div></div></div>';
+}
+async function loadJournal(){
+  var df=document.getElementById('jDateFrom'),dt=document.getElementById('jDateTo');
+  var params='?direction='+journalDirection;
+  if(df&&df.value)params+='&date_from='+df.value;
+  if(dt&&dt.value)params+='&date_to='+dt.value;
+  try{
+    var data=await api('/api/journal/'+journalDirection+params.replace('?direction='+journalDirection,''));
+    var isInc=journalDirection==='incoming';
+    var table=document.getElementById('journalTable');
+    if(!table)return;
+    var rows=data.entries.map(function(e,i){
+      return '<tr><td>'+(i+1)+'</td><td>'+esc(e.reg_number)+'</td><td>'+esc(e.ext_number)+'</td><td>'+esc(e.date)+'</td><td>'+esc(e.ext_date)+'</td>'+
+        '<td><a href="#" onclick="event.preventDefault();showPage(\'detail\','+e.id+')" style="font-weight:600">'+esc(e.title)+'</a></td>'+
+        '<td>'+esc(e.counterparty)+'</td><td>'+esc(e.author)+'</td><td>'+esc(e.amount||'\u2014')+'</td><td>'+esc(e.status)+'</td><td>'+esc(e.approvers)+'</td><td>'+esc(e.description)+'</td></tr>';
+    }).join('');
+    if(!rows)rows='<tr><td colspan="12" style="text-align:center;padding:2rem;color:var(--text-secondary)">Нет записей за выбранный период</td></tr>';
+    table.innerHTML='<thead><tr><th>№ п/п</th><th>Рег. №</th><th>'+(isInc?'Вх. №':'Исх. №')+'</th><th>Дата рег.</th><th>'+(isInc?'Дата получ.':'Дата отпр.')+'</th><th>Наименование</th><th>'+(isInc?'Отправитель':'Получатель')+'</th><th>Автор</th><th>Сумма</th><th>Статус</th><th>Согласователи</th><th>Примечание</th></tr></thead><tbody>'+rows+'</tbody>';
+    toast('Загружено: '+data.total+' записей','success');
+  }catch(e){toast(e.message,'error')}
+}
+function printJournal(){
+  var table=document.getElementById('journalTable');
+  if(!table)return;
+  var isInc=journalDirection==='incoming';
+  var title=isInc?'Журнал регистрации входящих документов':'Журнал регистрации исходящих документов';
+  var df=document.getElementById('jDateFrom'),dt=document.getElementById('jDateTo');
+  var period='';
+  if(df&&df.value)period+='с '+df.value+' ';
+  if(dt&&dt.value)period+='по '+dt.value;
+  var w=window.open('','_blank','width=1100,height=700');
+  w.document.write('<!DOCTYPE html><html><head><meta charset="utf-8"><title>'+title+'</title><style>body{font-family:Arial,sans-serif;margin:20px;font-size:11px}h1{font-size:16px;text-align:center;margin-bottom:4px}p.period{text-align:center;color:#555;margin-bottom:12px;font-size:12px}table{width:100%;border-collapse:collapse}th,td{border:1px solid #333;padding:4px 6px;text-align:left;font-size:10px}th{background:#f0f0f0;font-weight:700}tr:nth-child(even){background:#fafafa}@media print{body{margin:10px}}</style></head><body>'+
+    '<h1>'+title+'</h1>'+(period?'<p class="period">Период: '+period+'</p>':'')+
+    table.outerHTML+
+    '<div style="margin-top:20px;font-size:10px;color:#999">Распечатано: '+new Date().toLocaleString('ru-RU')+'</div>'+
+    '</body></html>');
+  w.document.close();w.focus();setTimeout(function(){w.print()},300);
+}
+
+// ============ NOMENCLATURE ============
+async function renderNomenclature(el){
+  try{var cases=await api('/api/nomenclature')}catch(e){cases=[]}
+  var rows=cases.map(function(c){
+    return '<tr><td>'+esc(c.index)+'</td><td><a href="#" onclick="event.preventDefault();showNomenclatureDocs('+c.id+',\''+esc(c.index)+' - '+esc(c.title).replace(/'/g,"\\'")+'\')">'+esc(c.title)+'</a></td>'+
+      '<td>'+esc(c.department)+'</td><td>'+c.retention_years+' лет</td><td>'+c.doc_count+'</td><td>'+esc(c.description||'')+'</td>'+
+      '<td style="white-space:nowrap"><button class="btn btn-outline btn-sm" onclick="editNomenclature('+c.id+',\''+esc(c.index).replace(/'/g,"\\'")+'\',\''+esc(c.title).replace(/'/g,"\\'")+'\',\''+esc(c.department).replace(/'/g,"\\'")+'\','+c.retention_years+',\''+esc(c.description||'').replace(/'/g,"\\'")+'\')">&#9998;</button> '+
+      '<button class="btn btn-danger btn-sm" onclick="deleteNomenclature('+c.id+')">&#128465;</button></td></tr>';
+  }).join('');
+  if(!rows)rows='<tr><td colspan="7" style="text-align:center;padding:2rem;color:var(--text-secondary)">Номенклатура дел пуста</td></tr>';
+  el.innerHTML='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem"><h2 class="page-title" style="margin-bottom:0">Номенклатура дел</h2><button class="btn btn-primary" onclick="addNomenclature()">&#10010; Добавить дело</button></div>'+
+    '<div class="card"><div class="card-body" style="padding:0"><div class="table-wrap"><table><thead><tr><th>Индекс</th><th>Наименование дела</th><th>Отдел</th><th>Срок хранения</th><th>Документов</th><th>Описание</th><th>Действия</th></tr></thead><tbody>'+rows+'</tbody></table></div></div></div>';
+}
+function addNomenclature(){_nomenclatureModal()}
+function editNomenclature(id,idx,title,dept,years,desc){_nomenclatureModal(id,idx,title,dept,years,desc)}
+function _nomenclatureModal(id,idx,title,dept,years,desc){
+  var isEdit=!!id;
+  var ov=document.createElement('div');ov.className='modal-overlay';ov.onclick=function(e){if(e.target===ov)ov.remove()};
+  ov.innerHTML='<div class="modal-card"><div class="modal-header"><h3>'+(isEdit?'Редактировать дело':'Новое дело')+'</h3><button class="modal-close" onclick="this.closest(\'.modal-overlay\').remove()">&times;</button></div>'+
+    '<div class="modal-body"><div class="form-group"><label>Индекс *</label><input type="text" id="nmIdx" value="'+esc(idx||'')+'" placeholder="01-01"></div>'+
+    '<div class="form-group"><label>Наименование *</label><input type="text" id="nmTitle" value="'+esc(title||'')+'"></div>'+
+    '<div class="form-group"><label>Отдел</label><input type="text" id="nmDept" value="'+esc(dept||'')+'"></div>'+
+    '<div class="form-group"><label>Срок хранения (лет)</label><input type="number" id="nmYears" value="'+(years||5)+'" min="1"></div>'+
+    '<div class="form-group"><label>Описание</label><textarea id="nmDesc" rows="2">'+esc(desc||'')+'</textarea></div></div>'+
+    '<div class="modal-footer"><button class="btn btn-outline" onclick="this.closest(\'.modal-overlay\').remove()">Отмена</button>'+
+    '<button class="btn btn-primary" id="nmSaveBtn">'+(isEdit?'Сохранить':'Добавить')+'</button></div></div>';
+  document.body.appendChild(ov);
+  document.getElementById('nmSaveBtn').onclick=async function(){
+    var body={index:document.getElementById('nmIdx').value.trim(),title:document.getElementById('nmTitle').value.trim(),
+      department:document.getElementById('nmDept').value.trim(),retention_years:parseInt(document.getElementById('nmYears').value)||5,
+      description:document.getElementById('nmDesc').value.trim()};
+    if(!body.index||!body.title){toast('Заполните индекс и наименование','error');return}
+    try{
+      if(isEdit){await api('/api/nomenclature/'+id,{method:'PUT',body:body})}
+      else{await api('/api/nomenclature',{method:'POST',body:body})}
+      ov.remove();toast(isEdit?'Дело обновлено':'Дело добавлено','success');renderNomenclature(document.getElementById('pageContent'));
+    }catch(e){toast(e.message,'error')}
+  };
+}
+async function deleteNomenclature(id){if(!confirm('Удалить дело из номенклатуры?'))return;try{await api('/api/nomenclature/'+id,{method:'DELETE'});toast('Дело удалено','success');renderNomenclature(document.getElementById('pageContent'))}catch(e){toast(e.message,'error')}}
+async function showNomenclatureDocs(caseId,caseName){
+  try{var docs=await api('/api/nomenclature/'+caseId+'/documents')}catch(e){docs=[]}
+  var rows=docs.map(function(d){return '<tr><td>'+esc(d.number||'#'+d.id)+'</td><td><a href="#" onclick="event.preventDefault();showPage(\'detail\','+d.id+')">'+esc(d.title)+'</a></td><td>'+esc(DOC_TYPES[d.doc_type]||d.doc_type)+'</td><td>'+(STATUSES[d.status]||d.status)+'</td><td>'+formatDate(d.created_at)+'</td></tr>'}).join('');
+  if(!rows)rows='<tr><td colspan="5" style="text-align:center;padding:1rem">Нет документов в этом деле</td></tr>';
+  var ov=document.createElement('div');ov.className='modal-overlay';ov.onclick=function(e){if(e.target===ov)ov.remove()};
+  ov.innerHTML='<div class="modal-card" style="max-width:700px"><div class="modal-header"><h3>'+esc(caseName)+'</h3><button class="modal-close" onclick="this.closest(\'.modal-overlay\').remove()">&times;</button></div>'+
+    '<div class="modal-body" style="padding:0"><table style="width:100%"><thead><tr><th>Номер</th><th>Название</th><th>Тип</th><th>Статус</th><th>Дата</th></tr></thead><tbody>'+rows+'</tbody></table></div>'+
+    '<div class="modal-footer"><button class="btn btn-outline" onclick="this.closest(\'.modal-overlay\').remove()">Закрыть</button></div></div>';
+  document.body.appendChild(ov);
+}
 
 function aiSetDoc(docId){aiCurrentDocId=docId}
 
