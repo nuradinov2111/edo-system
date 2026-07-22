@@ -308,6 +308,46 @@ class DocumentSignature(Base):
     document = relationship("Document")
 
 
+class Reminder(Base):
+    __tablename__ = "reminders"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    document_id = Column(Integer, ForeignKey("documents.id", ondelete="CASCADE"), nullable=False)
+    remind_at = Column(String(30), nullable=False)
+    message = Column(String(500), default="")
+    sent = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+    user = relationship("User")
+    document = relationship("Document")
+
+
+class ControlledDoc(Base):
+    __tablename__ = "controlled_docs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    document_id = Column(Integer, ForeignKey("documents.id", ondelete="CASCADE"), nullable=False)
+    note = Column(String(500), default="")
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+    user = relationship("User")
+    document = relationship("Document")
+
+
+class PinnedDoc(Base):
+    __tablename__ = "pinned_docs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    document_id = Column(Integer, ForeignKey("documents.id", ondelete="CASCADE"), nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+    user = relationship("User")
+    document = relationship("Document")
+
+
 class NomenclatureCase(Base):
     __tablename__ = "nomenclature_cases"
 

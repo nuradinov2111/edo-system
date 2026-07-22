@@ -11,6 +11,7 @@ from models import (
     History, Version, Attachment, ApprovalRoute, doc_tags, doc_related, Task, Resolution,
     AuditLog, DocumentTemplate, NomenclatureCase,
     Favorite, DocumentView, Delegation, DocumentSignature,
+    Reminder, ControlledDoc, PinnedDoc,
 )
 from schemas import (
     UserRegister, UserLogin, UserOut, UserOutPublic, Token, UserCreate, DeputySet,
@@ -81,6 +82,7 @@ async def _deadline_reminder_loop():
             db = SessionLocal()
             _process_deadline_reminders(db)
             _process_task_reminders(db)
+            _process_custom_reminders(db)
             db.close()
         except Exception:
             pass
@@ -170,6 +172,21 @@ def _process_task_reminders(db: Session):
             if not existing:
                 msg = f'Завтра истекает срок поручения: "{task.title}"' if days_left == 1 else f'Сегодня истекает срок поручения: "{task.title}"'
                 add_notification(db, task.assignee_id, "task_reminder", "Напоминание", msg, task.document_id)
+    db.commit()
+
+
+def _process_custom_reminders(db: Session):
+    """Process custom document reminders."""
+    now = datetime.now(timezone.utc)
+    now_str = now.strftime("%Y-%m-%dT%H:%M")
+    reminders = db.query(Reminder).filter(Reminder.sent == False).all()
+    for r in reminders:
+        if r.remind_at <= now_str:
+            doc = db.query(Document).filter(Document.id == r.document_id).first()
+            title = doc.title if doc else f"Документ #{r.document_id}"
+            msg = r.message or f'Напоминание о документе "{title}"'
+            add_notification(db, r.user_id, "reminder", "Напоминание", msg, r.document_id)
+            r.sent = True
     db.commit()
 
 
@@ -263,7 +280,8 @@ def run_migrations(eng):
 
     # Ensure new tables exist
     for table_name in ["audit_log", "document_templates", "nomenclature_cases",
-                        "favorites", "document_views", "delegations", "document_signatures"]:
+                        "favorites", "document_views", "delegations", "document_signatures",
+                        "reminders", "controlled_docs", "pinned_docs"]:
         if table_name not in existing_tables:
             Base.metadata.create_all(bind=eng, tables=[Base.metadata.tables[table_name]])
 
@@ -3937,6 +3955,224 @@ def batch_print(data: dict, db: Session = Depends(get_db), user: User = Depends(
             "resolution": doc.resolution.text if doc.resolution else "",
         })
     return {"documents": results, "count": len(results)}
+
+
+# ============ REMINDERS ============
+
+@app.get("/api/reminders")
+def list_reminders(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    rems = db.query(Reminder).filter(Reminder.user_id == user.id).order_by(Reminder.remind_at).all()
+    result = []
+    for r in rems:
+        doc = db.query(Document).filter(Document.id == r.document_id).first()
+        result.append({
+            "id": r.id, "document_id": r.document_id,
+            "doc_title": doc.title if doc else "", "remind_at": r.remind_at,
+            "message": r.message, "sent": r.sent,
+            "created_at": r.created_at.isoformat() if r.created_at else "",
+        })
+    return result
+
+
+@app.post("/api/reminders")
+def create_reminder(data: dict, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    doc_id = data.get("document_id")
+    remind_at = data.get("remind_at", "")
+    message = sanitize(data.get("message", ""))
+    if not doc_id or not remind_at:
+        raise HTTPException(400, "Укажите документ и дату")
+    doc = db.query(Document).filter(Document.id == doc_id).first()
+    if not doc:
+        raise HTTPException(404, "Документ не найден")
+    rem = Reminder(user_id=user.id, document_id=doc_id, remind_at=remind_at, message=message)
+    db.add(rem)
+    db.commit()
+    db.refresh(rem)
+    return {"id": rem.id, "ok": True}
+
+
+@app.delete("/api/reminders/{rem_id}")
+def delete_reminder(rem_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    rem = db.query(Reminder).filter(Reminder.id == rem_id, Reminder.user_id == user.id).first()
+    if not rem:
+        raise HTTPException(404, "Напоминание не найдено")
+    db.delete(rem)
+    db.commit()
+    return {"ok": True}
+
+
+# ============ CONTROLLED DOCUMENTS ============
+
+@app.post("/api/documents/{doc_id}/control")
+def add_to_control(doc_id: int, data: dict = None, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    if data is None:
+        data = {}
+    doc = load_doc(db, doc_id)
+    existing = db.query(ControlledDoc).filter(ControlledDoc.user_id == user.id, ControlledDoc.document_id == doc_id).first()
+    if existing:
+        return {"ok": True, "controlled": True}
+    note = sanitize(data.get("note", ""))
+    db.add(ControlledDoc(user_id=user.id, document_id=doc_id, note=note))
+    add_history(db, doc, user.name, "Поставлен на контроль")
+    db.commit()
+    return {"ok": True, "controlled": True}
+
+
+@app.delete("/api/documents/{doc_id}/control")
+def remove_from_control(doc_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    ctrl = db.query(ControlledDoc).filter(ControlledDoc.user_id == user.id, ControlledDoc.document_id == doc_id).first()
+    if ctrl:
+        db.delete(ctrl)
+        db.commit()
+    return {"ok": True, "controlled": False}
+
+
+@app.get("/api/control")
+def list_controlled(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    ctrls = db.query(ControlledDoc).filter(ControlledDoc.user_id == user.id).order_by(ControlledDoc.created_at.desc()).all()
+    result = []
+    for c in ctrls:
+        doc = db.query(Document).filter(Document.id == c.document_id, Document.deleted == False).first()
+        if doc:
+            result.append({
+                "id": doc.id, "number": doc.number, "title": doc.title,
+                "doc_type": doc.doc_type, "status": doc.status, "priority": doc.priority,
+                "note": c.note, "controlled_at": c.created_at.isoformat() if c.created_at else "",
+            })
+    return result
+
+
+@app.get("/api/documents/{doc_id}/is-controlled")
+def is_controlled(doc_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    ctrl = db.query(ControlledDoc).filter(ControlledDoc.user_id == user.id, ControlledDoc.document_id == doc_id).first()
+    return {"controlled": ctrl is not None}
+
+
+# ============ DEPARTMENT STATS ============
+
+@app.get("/api/department-stats")
+def department_stats(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    from sqlalchemy import func
+    users = db.query(User).all()
+    departments = {}
+    for u in users:
+        dept = u.department or "Без отдела"
+        if dept not in departments:
+            departments[dept] = {"name": dept, "users": 0, "docs": 0, "approvals": 0, "tasks_done": 0, "tasks_total": 0}
+        departments[dept]["users"] += 1
+        departments[dept]["docs"] += db.query(func.count(Document.id)).filter(
+            Document.author_id == u.id, Document.deleted == False
+        ).scalar()
+        departments[dept]["approvals"] += db.query(func.count(Approval.id)).filter(
+            Approval.user_id == u.id, Approval.status.in_(["approved", "rejected"])
+        ).scalar()
+        departments[dept]["tasks_done"] += db.query(func.count(Task.id)).filter(
+            Task.assignee_id == u.id, Task.status == "completed"
+        ).scalar()
+        departments[dept]["tasks_total"] += db.query(func.count(Task.id)).filter(
+            Task.assignee_id == u.id
+        ).scalar()
+    return list(departments.values())
+
+
+# ============ EXPORT SELECTED AS ZIP ============
+
+@app.post("/api/documents/export-zip")
+def export_docs_zip(data: dict, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    doc_ids = data.get("doc_ids", [])
+    if not doc_ids:
+        raise HTTPException(400, "Укажите документы")
+    if len(doc_ids) > 50:
+        raise HTTPException(400, "Максимум 50 документов")
+    import io, zipfile
+    zip_buf = io.BytesIO()
+    with zipfile.ZipFile(zip_buf, 'w', zipfile.ZIP_DEFLATED) as zf:
+        for did in doc_ids:
+            doc = db.query(Document).filter(Document.id == did, Document.deleted == False).first()
+            if not doc:
+                continue
+            author = db.query(User).filter(User.id == doc.author_id).first()
+            text = f"Документ: {doc.title}\n"
+            text += f"Номер: {doc.number or doc.id}\n"
+            text += f"Тип: {DOC_TYPE_LABELS.get(doc.doc_type, doc.doc_type)}\n"
+            text += f"Статус: {STATUS_LABELS.get(doc.status, doc.status)}\n"
+            text += f"Автор: {author.name if author else ''}\n"
+            text += f"Приоритет: {doc.priority}\n"
+            text += f"Дата: {doc.created_at.strftime('%d.%m.%Y %H:%M') if doc.created_at else ''}\n"
+            if doc.deadline:
+                text += f"Дедлайн: {doc.deadline}\n"
+            if doc.description:
+                text += f"\nОписание:\n{doc.description}\n"
+            text += f"\nСодержание:\n{doc.content}\n"
+            if doc.resolution:
+                text += f"\nРезолюция: {doc.resolution.text}\n"
+            safe_name = f"{doc.number or doc.id}_{doc.title[:40]}".replace("/", "_").replace("\\", "_")
+            zf.writestr(f"{safe_name}.txt", text)
+    zip_buf.seek(0)
+    from fastapi.responses import Response
+    return Response(
+        content=zip_buf.read(), media_type="application/zip",
+        headers={"Content-Disposition": f"attachment; filename=documents-export.zip"}
+    )
+
+
+# ============ PINNED DOCUMENTS ============
+
+@app.post("/api/documents/{doc_id}/pin")
+def pin_document(doc_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    doc = load_doc(db, doc_id)
+    existing = db.query(PinnedDoc).filter(PinnedDoc.user_id == user.id, PinnedDoc.document_id == doc_id).first()
+    if existing:
+        return {"ok": True, "pinned": True}
+    db.add(PinnedDoc(user_id=user.id, document_id=doc_id))
+    db.commit()
+    return {"ok": True, "pinned": True}
+
+
+@app.delete("/api/documents/{doc_id}/pin")
+def unpin_document(doc_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    pin = db.query(PinnedDoc).filter(PinnedDoc.user_id == user.id, PinnedDoc.document_id == doc_id).first()
+    if pin:
+        db.delete(pin)
+        db.commit()
+    return {"ok": True, "pinned": False}
+
+
+@app.get("/api/pinned")
+def list_pinned(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    pins = db.query(PinnedDoc).filter(PinnedDoc.user_id == user.id).order_by(PinnedDoc.created_at.desc()).all()
+    return [p.document_id for p in pins]
+
+
+# ============ COMPARE TWO DOCUMENTS ============
+
+@app.get("/api/documents/compare")
+def compare_documents(id1: int, id2: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    doc1 = db.query(Document).filter(Document.id == id1, Document.deleted == False).first()
+    doc2 = db.query(Document).filter(Document.id == id2, Document.deleted == False).first()
+    if not doc1 or not doc2:
+        raise HTTPException(404, "Документ не найден")
+    a1 = db.query(User).filter(User.id == doc1.author_id).first()
+    a2 = db.query(User).filter(User.id == doc2.author_id).first()
+    # Line-by-line diff of content
+    lines1 = (doc1.content or "").splitlines()
+    lines2 = (doc2.content or "").splitlines()
+    diff_lines = []
+    max_len = max(len(lines1), len(lines2))
+    for i in range(max_len):
+        l1 = lines1[i] if i < len(lines1) else ""
+        l2 = lines2[i] if i < len(lines2) else ""
+        if l1 == l2:
+            diff_lines.append({"type": "same", "left": l1, "right": l2})
+        else:
+            diff_lines.append({"type": "changed", "left": l1, "right": l2})
+    return {
+        "doc1": {"id": doc1.id, "title": doc1.title, "number": doc1.number, "author": a1.name if a1 else "",
+                 "status": doc1.status, "doc_type": doc1.doc_type},
+        "doc2": {"id": doc2.id, "title": doc2.title, "number": doc2.number, "author": a2.name if a2 else "",
+                 "status": doc2.status, "doc_type": doc2.doc_type},
+        "diff": diff_lines,
+    }
 
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
