@@ -152,12 +152,6 @@ async def lifespan(application):
 app = FastAPI(title="ЭДО API", lifespan=lifespan)
 
 
-@app.get("/api/debug/tables")
-def debug_tables():
-    from sqlalchemy import inspect as sa_inspect
-    insp = sa_inspect(engine)
-    return {"tables": insp.get_table_names()}
-
 
 # --- Startup ---
 def run_migrations(eng):
@@ -1495,7 +1489,7 @@ def list_templates(db: Session = Depends(get_db), user: User = Depends(get_curre
     return result
 
 
-@app.post("/api/templates", response_model=TemplateOut)
+@app.post("/api/templates")
 def create_template(data: TemplateCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     tmpl = DocumentTemplate(
         name=sanitize(data.name),
@@ -1514,10 +1508,20 @@ def create_template(data: TemplateCreate, db: Session = Depends(get_db), user: U
     add_audit(db, user.id, user.name, "create", "template", details=data.name[:60])
     db.commit()
     db.refresh(tmpl)
-    out = TemplateOut.model_validate(tmpl)
-    out.author_name = user.name
-    out.extra_fields_template = json.loads(tmpl.extra_fields_template) if isinstance(tmpl.extra_fields_template, str) else {}
-    return out
+    extra = {}
+    try:
+        extra = json.loads(tmpl.extra_fields_template) if isinstance(tmpl.extra_fields_template, str) else {}
+    except Exception:
+        pass
+    return {
+        "id": tmpl.id, "name": tmpl.name, "doc_type": tmpl.doc_type,
+        "title_template": tmpl.title_template or "", "description_template": tmpl.description_template or "",
+        "content_template": tmpl.content_template or "", "extra_fields_template": extra,
+        "priority": tmpl.priority or "normal", "approver_ids": tmpl.approver_ids or "",
+        "sequential": tmpl.sequential, "author_id": tmpl.author_id,
+        "author_name": user.name, "is_public": tmpl.is_public,
+        "created_at": tmpl.created_at.isoformat() if tmpl.created_at else "",
+    }
 
 
 @app.post("/api/templates/{tmpl_id}/apply", response_model=DocumentOut)
