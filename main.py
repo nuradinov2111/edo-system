@@ -3293,10 +3293,23 @@ def export_analytics_pdf(db: Session = Depends(get_db), user: User = Depends(get
     from sqlalchemy import func
 
     pdf = FPDF()
-    font_path = os.path.join(os.path.dirname(__file__), "fonts", "DejaVuSans.ttf")
-    if os.path.exists(font_path):
-        pdf.add_font("dejavu", "", font_path, uni=True)
-        pdf.add_font("dejavu", "B", os.path.join(os.path.dirname(__file__), "fonts", "DejaVuSans-Bold.ttf"), uni=True)
+    # Find DejaVu font (same logic as PDF export)
+    fp = fb = None
+    for sp in ["/usr/share/fonts/truetype/dejavu", "/usr/share/fonts/dejavu", "/usr/share/fonts/TTF"]:
+        _fp = os.path.join(sp, "DejaVuSans.ttf")
+        _fb = os.path.join(sp, "DejaVuSans-Bold.ttf")
+        if os.path.exists(_fp):
+            fp, fb = _fp, _fb
+            break
+    if not fp:
+        font_dir = os.path.join(os.path.dirname(__file__), "fonts")
+        _fp = os.path.join(font_dir, "DejaVuSans.ttf")
+        _fb = os.path.join(font_dir, "DejaVuSans-Bold.ttf")
+        if os.path.exists(_fp):
+            fp, fb = _fp, _fb
+    if fp and os.path.exists(fp):
+        pdf.add_font("dejavu", "", fp)
+        pdf.add_font("dejavu", "B", fb if fb and os.path.exists(fb) else fp)
         fn = "dejavu"
     else:
         fn = "Helvetica"
