@@ -152,6 +152,13 @@ async def lifespan(application):
 app = FastAPI(title="ЭДО API", lifespan=lifespan)
 
 
+@app.get("/api/debug/tables")
+def debug_tables():
+    from sqlalchemy import inspect as sa_inspect
+    insp = sa_inspect(engine)
+    return {"tables": insp.get_table_names()}
+
+
 # --- Startup ---
 def run_migrations(eng):
     """Add missing columns/tables to existing DB without dropping data."""
@@ -1450,14 +1457,13 @@ def list_audit_log(
 
 # ============ DOCUMENT TEMPLATES ============
 
-@app.get("/api/templates", response_model=list[TemplateOut])
+@app.get("/api/templates")
 def list_templates(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     try:
         templates = db.query(DocumentTemplate).filter(
             (DocumentTemplate.is_public == True) | (DocumentTemplate.author_id == user.id)
         ).order_by(DocumentTemplate.created_at.desc()).all()
     except Exception:
-        # Table may not exist yet, try to create it
         Base.metadata.create_all(bind=engine)
         db.rollback()
         templates = db.query(DocumentTemplate).filter(
@@ -1465,10 +1471,27 @@ def list_templates(db: Session = Depends(get_db), user: User = Depends(get_curre
         ).order_by(DocumentTemplate.created_at.desc()).all()
     result = []
     for t in templates:
-        out = TemplateOut.model_validate(t)
-        out.author_name = t.author.name if t.author else ""
-        out.extra_fields_template = json.loads(t.extra_fields_template) if isinstance(t.extra_fields_template, str) else (t.extra_fields_template or {})
-        result.append(out)
+        extra = {}
+        try:
+            extra = json.loads(t.extra_fields_template) if isinstance(t.extra_fields_template, str) else (t.extra_fields_template or {})
+        except Exception:
+            pass
+        result.append({
+            "id": t.id,
+            "name": t.name,
+            "doc_type": t.doc_type,
+            "title_template": t.title_template or "",
+            "description_template": t.description_template or "",
+            "content_template": t.content_template or "",
+            "extra_fields_template": extra,
+            "priority": t.priority or "normal",
+            "approver_ids": t.approver_ids or "",
+            "sequential": t.sequential,
+            "author_id": t.author_id,
+            "author_name": t.author.name if t.author else "",
+            "is_public": t.is_public,
+            "created_at": t.created_at.isoformat() if t.created_at else "",
+        })
     return result
 
 
