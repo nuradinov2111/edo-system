@@ -414,13 +414,28 @@ OUTGOING_TYPES = [
 ]
 
 def gen_number(db: Session, doc_type: str) -> str:
+    from sqlalchemy import func
+    # Incoming/outgoing documents get simple sequential numbers: 1, 2, 3...
+    if doc_type in INCOMING_TYPES:
+        count = db.query(func.count(Document.id)).filter(Document.doc_type.in_(INCOMING_TYPES)).scalar() + 1
+        number = str(count)
+        while db.query(Document).filter(Document.number == number, Document.doc_type.in_(INCOMING_TYPES)).first():
+            count += 1
+            number = str(count)
+        return number
+    if doc_type in OUTGOING_TYPES:
+        count = db.query(func.count(Document.id)).filter(Document.doc_type.in_(OUTGOING_TYPES)).scalar() + 1
+        number = str(count)
+        while db.query(Document).filter(Document.number == number, Document.doc_type.in_(OUTGOING_TYPES)).first():
+            count += 1
+            number = str(count)
+        return number
+    # Other document types keep prefix-based numbering
     prefix = TYPE_PREFIX.get(doc_type, "ДОК")
     year = datetime.now().year
-    from sqlalchemy import func
     count = db.query(func.count(Document.id)).filter(Document.doc_type == doc_type).scalar() + 1
     total = db.query(func.count(Document.id)).scalar() + 1
     number = f"{prefix}-{year}-{str(count).zfill(3)} (№{total})"
-    # Retry with incremented count if number already exists
     while db.query(Document).filter(Document.number == number).first():
         count += 1
         total += 1
