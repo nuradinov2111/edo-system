@@ -143,6 +143,7 @@ async def lifespan(application):
     run_migrations(engine)
     Base.metadata.create_all(bind=engine)
     _seed_data()
+    _renumber_correspondence()
     task = asyncio.create_task(_auto_approve_loop())
     task2 = asyncio.create_task(_deadline_reminder_loop())
     yield
@@ -188,6 +189,23 @@ def run_migrations(eng):
     for table_name in ["audit_log", "document_templates"]:
         if table_name not in existing_tables:
             Base.metadata.create_all(bind=eng, tables=[Base.metadata.tables[table_name]])
+
+
+def _renumber_correspondence():
+    """Перенумеровать входящие и исходящие документы: 1, 2, 3..."""
+    db = SessionLocal()
+    try:
+        for types in [INCOMING_TYPES, OUTGOING_TYPES]:
+            docs = db.query(Document).filter(
+                Document.doc_type.in_(types)
+            ).order_by(Document.created_at).all()
+            for i, doc in enumerate(docs, 1):
+                new_num = str(i)
+                if doc.number != new_num:
+                    doc.number = new_num
+        db.commit()
+    finally:
+        db.close()
 
 
 def _seed_data():
