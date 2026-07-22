@@ -1672,7 +1672,7 @@ async function compareWithDoc(docId){
   var ch=prompt('Сравнить с каким документом? Введите номер:\n'+opts);
   if(!ch)return;var idx=parseInt(ch)-1;
   if(isNaN(idx)||idx<0||idx>=others.length){toast('Неверный выбор','error');return}
-  try{var res=await api('/api/documents/compare?id1='+docId+'&id2='+others[idx].id);
+  try{var res=await api('/api/compare-docs?id1='+docId+'&id2='+others[idx].id);
   var html='<div class="modal-overlay" onclick="if(event.target===this)this.remove()"><div class="modal-card" style="max-width:900px"><div class="modal-header"><h3>Сравнение документов</h3><button class="modal-close" onclick="this.closest(\'.modal-overlay\').remove()">&times;</button></div><div class="modal-body">';
   html+='<div style="display:flex;gap:1rem;margin-bottom:1rem;font-size:.8125rem"><div style="flex:1;padding:.5rem;background:var(--g100);border-radius:var(--radius)"><b>'+esc(res.doc1.title)+'</b><br>'+esc(res.doc1.number)+' &middot; '+esc(res.doc1.author)+'</div><div style="flex:1;padding:.5rem;background:var(--g100);border-radius:var(--radius)"><b>'+esc(res.doc2.title)+'</b><br>'+esc(res.doc2.number)+' &middot; '+esc(res.doc2.author)+'</div></div>';
   html+='<div style="font-family:monospace;font-size:.8rem;border:1px solid var(--border);border-radius:var(--radius);overflow:auto;max-height:400px">';

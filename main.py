@@ -4146,7 +4146,7 @@ def list_pinned(db: Session = Depends(get_db), user: User = Depends(get_current_
 
 # ============ COMPARE TWO DOCUMENTS ============
 
-@app.get("/api/documents/compare")
+@app.get("/api/compare-docs")
 def compare_documents(id1: int, id2: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     doc1 = db.query(Document).filter(Document.id == id1, Document.deleted == False).first()
     doc2 = db.query(Document).filter(Document.id == id2, Document.deleted == False).first()
