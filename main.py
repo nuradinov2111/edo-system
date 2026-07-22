@@ -595,10 +595,13 @@ def create_document(data: DocumentCreate, db: Session = Depends(get_db), user: U
     add_audit(db, user.id, user.name, "create", "document", doc.id, f"{doc.doc_type}: {doc.title[:60]}")
 
     if data.status == "pending" and data.approver_ids:
-        for i, uid in enumerate(data.approver_ids):
+        valid_uids = [u.id for u in db.query(User.id).filter(User.id.in_(data.approver_ids)).all()]
+        if not valid_uids:
+            raise HTTPException(400, "Указанные согласователи не найдены")
+        for i, uid in enumerate(valid_uids):
             db.add(Approval(document_id=doc.id, user_id=uid, order_num=i))
         add_history(db, doc, user.name, "Отправлен на согласование")
-        for uid in data.approver_ids:
+        for uid in valid_uids:
             add_notification(db, uid, "approval_request", "Документ на согласование", f'{user.name}: "{data.title}"', doc.id)
 
     db.commit()
@@ -818,13 +821,16 @@ def update_document(doc_id: int, data: DocumentCreate, db: Session = Depends(get
     add_history(db, doc, user.name, "Отредактирован")
 
     if data.status == "pending" and data.approver_ids:
+        valid_uids = [u.id for u in db.query(User.id).filter(User.id.in_(data.approver_ids)).all()]
+        if not valid_uids:
+            raise HTTPException(400, "Указанные согласователи не найдены")
         for a in doc.approvals:
             db.delete(a)
         db.flush()
-        for i, uid in enumerate(data.approver_ids):
+        for i, uid in enumerate(valid_uids):
             db.add(Approval(document_id=doc.id, user_id=uid, order_num=i))
         add_history(db, doc, user.name, "На согласование")
-        for uid in data.approver_ids:
+        for uid in valid_uids:
             add_notification(db, uid, "approval_request", "Документ на согласование", f'{user.name}: "{data.title}"', doc.id)
 
     db.commit()
