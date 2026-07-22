@@ -79,6 +79,7 @@ async def _deadline_reminder_loop():
         try:
             db = SessionLocal()
             _process_deadline_reminders(db)
+            _process_task_reminders(db)
             db.close()
         except Exception:
             pass
@@ -129,6 +130,79 @@ def _process_deadline_reminders(db: Session):
                         title="Напоминание о дедлайне", message=msg, doc_id=doc.id,
                     ))
     db.commit()
+
+
+def _process_task_reminders(db: Session):
+    """Send notifications for tasks approaching deadline."""
+    now = datetime.now(timezone.utc)
+    from datetime import timedelta
+    tasks = db.query(Task).filter(
+        Task.status.in_(["pending", "in_progress"]),
+        Task.deadline != "",
+    ).all()
+    for task in tasks:
+        try:
+            dl = datetime.strptime(task.deadline[:10], "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        except (ValueError, TypeError):
+            continue
+        days_left = (dl - now).days
+        if days_left < 0:
+            # Overdue task notification
+            today_str = now.strftime("%Y-%m-%d")
+            existing = db.query(Notification).filter(
+                Notification.user_id == task.assignee_id,
+                Notification.notif_type == "task_overdue",
+                Notification.doc_id == task.id,
+                Notification.created_at >= datetime.strptime(today_str, "%Y-%m-%d").replace(tzinfo=timezone.utc),
+            ).first()
+            if not existing:
+                add_notification(db, task.assignee_id, "task_overdue", "Просроченное поручение",
+                                 f'Поручение "{task.title}" просрочено!', task.document_id)
+        elif days_left <= 1:
+            today_str = now.strftime("%Y-%m-%d")
+            existing = db.query(Notification).filter(
+                Notification.user_id == task.assignee_id,
+                Notification.notif_type == "task_reminder",
+                Notification.doc_id == task.id,
+                Notification.created_at >= datetime.strptime(today_str, "%Y-%m-%d").replace(tzinfo=timezone.utc),
+            ).first()
+            if not existing:
+                msg = f'Завтра истекает срок поручения: "{task.title}"' if days_left == 1 else f'Сегодня истекает срок поручения: "{task.title}"'
+                add_notification(db, task.assignee_id, "task_reminder", "Напоминание", msg, task.document_id)
+    db.commit()
+
+
+# --- Email notifications (SMTP) ---
+SMTP_HOST = os.getenv("SMTP_HOST", "")
+SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
+SMTP_USER = os.getenv("SMTP_USER", "")
+SMTP_PASS = os.getenv("SMTP_PASS", "")
+SMTP_FROM = os.getenv("SMTP_FROM", "")
+
+
+def send_email(to_addr: str, subject: str, body: str):
+    """Send email notification via SMTP (non-blocking)."""
+    if not SMTP_HOST or not to_addr:
+        return
+    import threading
+    def _send():
+        try:
+            import smtplib
+            from email.mime.text import MIMEText
+            from email.mime.multipart import MIMEMultipart
+            msg = MIMEMultipart()
+            msg["From"] = SMTP_FROM or SMTP_USER
+            msg["To"] = to_addr
+            msg["Subject"] = subject
+            msg.attach(MIMEText(body, "html", "utf-8"))
+            with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:
+                server.starttls()
+                if SMTP_USER and SMTP_PASS:
+                    server.login(SMTP_USER, SMTP_PASS)
+                server.send_message(msg)
+        except Exception:
+            pass
+    threading.Thread(target=_send, daemon=True).start()
 
 
 def add_audit(db: Session, user_id: int, user_name: str, action: str,
@@ -544,11 +618,13 @@ def send_telegram(chat_id: str, text: str):
 
 def add_notification(db: Session, user_id: int, notif_type: str, title: str, message: str, doc_id: int = None):
     db.add(Notification(user_id=user_id, notif_type=notif_type, title=title, message=message, doc_id=doc_id))
-    # Send Telegram notification if configured
     try:
         user = db.query(User).filter(User.id == user_id).first()
-        if user and user.notify_telegram:
-            send_telegram(user.notify_telegram, f"<b>{title}</b>\n{message}")
+        if user:
+            if user.notify_telegram:
+                send_telegram(user.notify_telegram, f"<b>{title}</b>\n{message}")
+            if user.notify_email and SMTP_HOST:
+                send_email(user.notify_email, f"ЭДО: {title}", f"<h3>{title}</h3><p>{message}</p>")
     except Exception:
         pass
 
@@ -1336,12 +1412,27 @@ def get_dashboard(db: Session = Depends(get_db), user: User = Depends(get_curren
     ).order_by(Task.created_at.desc()).limit(5).all()
     tasks_out = [{"id": t.id, "title": t.title, "status": t.status, "deadline": t.deadline, "priority": t.priority} for t in my_tasks]
 
+    # Overdue tasks
+    overdue_tasks = []
+    all_my_tasks = db.query(Task).filter(
+        Task.assignee_id == user.id, Task.status.in_(["pending", "in_progress"]),
+        Task.deadline != "",
+    ).all()
+    for t in all_my_tasks:
+        try:
+            dl = datetime.fromisoformat(t.deadline.replace("Z", "+00:00")) if "T" in t.deadline else datetime.strptime(t.deadline[:10], "%Y-%m-%d").replace(tzinfo=timezone.utc)
+            if dl < now:
+                overdue_tasks.append({"id": t.id, "title": t.title, "deadline": t.deadline, "priority": t.priority})
+        except (ValueError, TypeError):
+            pass
+
     return {
         "total": total,
         "by_status": by_status,
         "by_type": by_type,
         "pending_approvals": pending_approvals,
         "overdue": overdue,
+        "overdue_tasks": overdue_tasks,
         "recent": recent_out,
         "my_tasks": tasks_out,
     }
@@ -1399,6 +1490,28 @@ def _process_auto_approvals(db: Session) -> int:
     ).all()
 
     count = 0
+
+    # Auto-delegate approvals when user is on vacation
+    for doc in pending_docs:
+        for approval in doc.approvals:
+            if approval.status != "pending":
+                continue
+            approver = approval.user
+            if not approver:
+                continue
+            if approver.user_status == "vacation" and approver.deputy_id:
+                deputy = db.query(User).filter(User.id == approver.deputy_id).first()
+                if deputy:
+                    existing_delegation = db.query(Approval).filter(
+                        Approval.document_id == doc.id, Approval.user_id == deputy.id
+                    ).first()
+                    if not existing_delegation:
+                        approval.user_id = deputy.id
+                        add_history(db, doc, "Система", f"Автоделегирование: {approver.name} (отпуск) → {deputy.name}")
+                        add_notification(db, deputy.id, "delegation", "Делегирование",
+                                         f'Документ "{doc.title}" делегирован вам (заместитель {approver.name})', doc.id)
+                        count += 1
+
     for doc in pending_docs:
         if not doc.deadline:
             continue
@@ -1931,6 +2044,90 @@ def export_pdf(doc_id: int, db: Session = Depends(get_db), user: User = Depends(
                 pdf.multi_cell(pw, 6, c.text)
                 pdf.ln(2)
 
+        # Organization stamp (circular) on approved documents
+        if d.status in ("approved", "resolved") and ORG_NAME:
+            try:
+                import math
+                stamp_x = pdf.w - 60
+                stamp_y = pdf.get_y() + 10
+                if stamp_y + 40 > pdf.h - 15:
+                    pdf.add_page()
+                    stamp_y = 30
+                r = 18
+                cx, cy = stamp_x + r, stamp_y + r
+                # Draw outer circle
+                pdf.set_draw_color(0, 100, 200)
+                pdf.set_line_width(0.8)
+                for i in range(360):
+                    a1 = math.radians(i)
+                    a2 = math.radians(i + 1)
+                    pdf.line(cx + r * math.cos(a1), cy + r * math.sin(a1),
+                             cx + r * math.cos(a2), cy + r * math.sin(a2))
+                # Inner circle
+                r2 = r - 3
+                for i in range(360):
+                    a1 = math.radians(i)
+                    a2 = math.radians(i + 1)
+                    pdf.line(cx + r2 * math.cos(a1), cy + r2 * math.sin(a1),
+                             cx + r2 * math.cos(a2), cy + r2 * math.sin(a2))
+                # Center text
+                pdf.set_font(font_name, 'B', 6)
+                pdf.set_text_color(0, 100, 200)
+                short_name = ORG_NAME[:20]
+                tw = pdf.get_string_width(short_name)
+                pdf.text(cx - tw / 2, cy - 2, short_name)
+                pdf.set_font(font_name, '', 5)
+                if ORG_INN:
+                    inn_text = f"ИНН {ORG_INN}"
+                    tw2 = pdf.get_string_width(inn_text)
+                    pdf.text(cx - tw2 / 2, cy + 3, inn_text)
+                date_text = d.created_at.strftime('%d.%m.%Y') if d.created_at else ""
+                if date_text:
+                    tw3 = pdf.get_string_width(date_text)
+                    pdf.text(cx - tw3 / 2, cy + 7, date_text)
+                pdf.set_text_color(0, 0, 0)
+                pdf.set_draw_color(0, 0, 0)
+            except Exception:
+                pass
+
+        # Watermark on draft/pending documents
+        if d.status in ("draft", "pending"):
+            try:
+                page_count = pdf.page
+                for pg in range(1, page_count + 1):
+                    pdf.page = pg
+                    pdf.set_font(font_name, 'B', 40)
+                    pdf.set_text_color(220, 220, 220)
+                    wm_text = "ЧЕРНОВИК" if d.status == "draft" else "НА СОГЛАСОВАНИИ"
+                    tw = pdf.get_string_width(wm_text)
+                    pdf.text((pdf.w - tw) / 2, pdf.h / 2, wm_text)
+                pdf.set_text_color(0, 0, 0)
+            except Exception:
+                pass
+
+        # QR code in PDF
+        try:
+            import qrcode as qr_lib
+            import io as qr_io
+            host = os.getenv("RENDER_EXTERNAL_URL", os.getenv("BASE_URL", ""))
+            qr_url = f"{host}/#doc/{doc_id}" if host else f"DOC-{d.number}"
+            qr = qr_lib.QRCode(version=1, box_size=4, border=1)
+            qr.add_data(qr_url)
+            qr.make(fit=True)
+            qr_img = qr.make_image(fill_color="black", back_color="white")
+            qr_buf = qr_io.BytesIO()
+            qr_img.save(qr_buf, format="PNG")
+            qr_tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
+            qr_tmp.write(qr_buf.getvalue())
+            qr_tmp.close()
+            if pdf.get_y() + 30 > pdf.h - 15:
+                pdf.add_page()
+            pdf.ln(5)
+            pdf.image(qr_tmp.name, x=pdf.l_margin, y=pdf.get_y(), w=25, h=25)
+            os.unlink(qr_tmp.name)
+        except Exception:
+            pass
+
         tmp = tempfile.NamedTemporaryFile(delete=False, suffix='.pdf')
         pdf.output(tmp.name)
         tmp.close()
@@ -2254,6 +2451,327 @@ def get_case_documents(case_id: int, db: Session = Depends(get_db), user: User =
     """Получить документы, привязанные к делу."""
     docs = db.query(Document).filter(Document.case_id == case_id, Document.deleted == False).order_by(Document.created_at.desc()).all()
     return [{"id": d.id, "number": d.number or "", "title": d.title, "doc_type": d.doc_type, "status": d.status, "created_at": str(d.created_at)} for d in docs]
+
+
+# ============ QR CODE ============
+
+@app.get("/api/documents/{doc_id}/qr")
+def get_qr_code(doc_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """Generate QR code for document URL as base64 PNG."""
+    doc = db.query(Document).filter(Document.id == doc_id).first()
+    if not doc:
+        raise HTTPException(404, "Документ не найден")
+    try:
+        import qrcode, io, base64
+        from qrcode.constants import ERROR_CORRECT_M
+        qr = qrcode.QRCode(version=1, error_correction=ERROR_CORRECT_M, box_size=6, border=2)
+        host = os.getenv("RENDER_EXTERNAL_URL", os.getenv("BASE_URL", ""))
+        url = f"{host}/#doc/{doc_id}" if host else f"ЭДО Документ #{doc.number or doc_id}: {doc.title}"
+        qr.add_data(url)
+        qr.make(fit=True)
+        img = qr.make_image(fill_color="black", back_color="white")
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        b64 = base64.b64encode(buf.getvalue()).decode()
+        return {"qr_base64": b64, "url": url}
+    except ImportError:
+        raise HTTPException(500, "QR library not installed")
+
+
+# ============ REPORTS ============
+
+@app.get("/api/reports")
+def get_reports(
+    date_from: str = "", date_to: str = "",
+    doc_type: str = "", status: str = "",
+    db: Session = Depends(get_db), user: User = Depends(get_current_user),
+):
+    """Generate document reports for a date period."""
+    q = db.query(Document).filter(Document.deleted == False)
+    if user.role != "admin":
+        q = q.filter(
+            (Document.author_id == user.id) |
+            Document.id.in_(db.query(Approval.document_id).filter(Approval.user_id == user.id))
+        )
+    if date_from:
+        try:
+            df = datetime.strptime(date_from, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+            q = q.filter(Document.created_at >= df)
+        except ValueError:
+            pass
+    if date_to:
+        try:
+            dt = datetime.strptime(date_to, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+            from datetime import timedelta
+            q = q.filter(Document.created_at < dt + timedelta(days=1))
+        except ValueError:
+            pass
+    if doc_type:
+        q = q.filter(Document.doc_type == doc_type)
+    if status:
+        q = q.filter(Document.status == status)
+    docs = q.order_by(Document.created_at.desc()).all()
+
+    by_status = {}
+    by_type = {}
+    by_author = {}
+    for d in docs:
+        by_status[d.status] = by_status.get(d.status, 0) + 1
+        by_type[d.doc_type] = by_type.get(d.doc_type, 0) + 1
+        author_name = d.author_user.name if d.author_user else "Неизвестен"
+        by_author[author_name] = by_author.get(author_name, 0) + 1
+
+    items = [{
+        "id": d.id, "number": d.number or "", "title": d.title,
+        "doc_type": d.doc_type, "status": d.status, "priority": d.priority or "normal",
+        "author_name": d.author_user.name if d.author_user else "",
+        "created_at": str(d.created_at), "deadline": d.deadline or "",
+    } for d in docs]
+
+    return {
+        "total": len(docs),
+        "by_status": by_status,
+        "by_type": by_type,
+        "by_author": by_author,
+        "items": items,
+        "date_from": date_from,
+        "date_to": date_to,
+    }
+
+
+@app.get("/api/reports/export/csv")
+def export_reports_csv(
+    date_from: str = "", date_to: str = "",
+    db: Session = Depends(get_db), user: User = Depends(get_current_user),
+):
+    """Export reports as CSV file."""
+    import csv, io, tempfile
+    q = db.query(Document).options(joinedload(Document.author_user)).filter(Document.deleted == False)
+    if user.role != "admin":
+        q = q.filter(
+            (Document.author_id == user.id) |
+            Document.id.in_(db.query(Approval.document_id).filter(Approval.user_id == user.id))
+        )
+    if date_from:
+        try:
+            df = datetime.strptime(date_from, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+            q = q.filter(Document.created_at >= df)
+        except ValueError:
+            pass
+    if date_to:
+        try:
+            dt = datetime.strptime(date_to, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+            from datetime import timedelta
+            q = q.filter(Document.created_at < dt + timedelta(days=1))
+        except ValueError:
+            pass
+    docs = q.order_by(Document.created_at.desc()).all()
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["№", "Номер", "Название", "Тип", "Статус", "Приоритет", "Автор", "Создан", "Дедлайн"])
+    for i, d in enumerate(docs, 1):
+        writer.writerow([i, d.number or "", d.title, DOC_TYPE_LABELS.get(d.doc_type, d.doc_type),
+                         STATUS_LABELS.get(d.status, d.status), d.priority or "",
+                         d.author_user.name if d.author_user else "", str(d.created_at)[:19], d.deadline or ""])
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".csv", mode="w", encoding="utf-8-sig")
+    tmp.write(output.getvalue())
+    tmp.close()
+    from starlette.background import BackgroundTask
+    return FileResponse(tmp.name, filename="report.csv", media_type="text/csv",
+                        background=BackgroundTask(os.unlink, tmp.name))
+
+
+# ============ ZIP IMPORT ============
+
+@app.post("/api/documents/import-zip")
+async def import_zip(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Import multiple documents from a ZIP archive."""
+    import zipfile, io
+    content_bytes = await file.read()
+    if len(content_bytes) > 50 * 1024 * 1024:
+        raise HTTPException(400, "Архив слишком большой (макс. 50 МБ)")
+    try:
+        zf = zipfile.ZipFile(io.BytesIO(content_bytes))
+    except zipfile.BadZipFile:
+        raise HTTPException(400, "Неверный формат ZIP")
+
+    imported = []
+    errors = []
+    for name in zf.namelist():
+        if name.endswith("/"):
+            continue
+        ext = name.rsplit(".", 1)[-1].lower() if "." in name else ""
+        if ext not in ("pdf", "docx"):
+            errors.append(f"{name}: неподдерживаемый формат")
+            continue
+        try:
+            file_bytes = zf.read(name)
+            if len(file_bytes) > 20 * 1024 * 1024:
+                errors.append(f"{name}: файл слишком большой")
+                continue
+            title = name.rsplit("/", 1)[-1].rsplit(".", 1)[0] if "." in name else name
+            text = ""
+            if ext == "docx":
+                from docx import Document as DocxDocument
+                try:
+                    dx = DocxDocument(io.BytesIO(file_bytes))
+                    text = "\n".join(p.text for p in dx.paragraphs if p.text.strip())
+                except Exception:
+                    text = "(Не удалось извлечь текст)"
+            elif ext == "pdf":
+                try:
+                    import fitz
+                    import tempfile as tf
+                    tmp = tf.NamedTemporaryFile(delete=False, suffix=".pdf")
+                    tmp.write(file_bytes)
+                    tmp.close()
+                    pdf_doc = fitz.open(tmp.name)
+                    pages = [page.get_text() for page in pdf_doc]
+                    pdf_doc.close()
+                    os.unlink(tmp.name)
+                    text = "\n".join(pages)
+                except Exception:
+                    text = "(Не удалось извлечь текст)"
+            text = sanitize(text.strip()) or "(Содержимое не удалось извлечь)"
+            number = gen_number(db, "other")
+            doc = Document(
+                number=number, title=sanitize(title), description=f"Импорт из ZIP: {name}",
+                content=text, doc_type="other", status="draft",
+                priority="normal", extra_fields="{}", author_id=user.id,
+            )
+            db.add(doc)
+            db.flush()
+            doc_dir = os.path.join(UPLOAD_DIR, str(doc.id))
+            os.makedirs(doc_dir, exist_ok=True)
+            safe_name = secrets.token_hex(8) + "_" + name.rsplit("/", 1)[-1]
+            filepath = os.path.join(doc_dir, safe_name)
+            with open(filepath, "wb") as f:
+                f.write(file_bytes)
+            db.add(Attachment(
+                document_id=doc.id, filename=name.rsplit("/", 1)[-1],
+                filepath=filepath, size=str(len(file_bytes)), filesize=len(file_bytes),
+            ))
+            add_history(db, doc, user.name, f"Импорт из ZIP: {name}")
+            imported.append({"id": doc.id, "title": title})
+        except Exception as e:
+            errors.append(f"{name}: {str(e)[:100]}")
+
+    db.commit()
+    return {"imported": imported, "errors": errors, "count": len(imported)}
+
+
+# ============ 1C API ============
+
+API_1C_TOKEN = os.getenv("API_1C_TOKEN", "")
+
+
+def _check_1c_token(request: Request):
+    """Verify 1C API token from header."""
+    token = request.headers.get("X-1C-Token", "")
+    if not API_1C_TOKEN:
+        raise HTTPException(503, "1C API не настроен (задайте API_1C_TOKEN)")
+    if token != API_1C_TOKEN:
+        raise HTTPException(401, "Неверный токен 1C API")
+
+
+@app.get("/api/v1/1c/documents")
+def api_1c_list_documents(
+    request: Request,
+    limit: int = 100, offset: int = 0,
+    doc_type: str = "", status: str = "",
+    date_from: str = "", date_to: str = "",
+    db: Session = Depends(get_db),
+):
+    """1C API: list documents."""
+    _check_1c_token(request)
+    q = db.query(Document).filter(Document.deleted == False)
+    if doc_type:
+        q = q.filter(Document.doc_type == doc_type)
+    if status:
+        q = q.filter(Document.status == status)
+    if date_from:
+        try:
+            q = q.filter(Document.created_at >= datetime.strptime(date_from, "%Y-%m-%d").replace(tzinfo=timezone.utc))
+        except ValueError:
+            pass
+    if date_to:
+        try:
+            from datetime import timedelta
+            q = q.filter(Document.created_at < datetime.strptime(date_to, "%Y-%m-%d").replace(tzinfo=timezone.utc) + timedelta(days=1))
+        except ValueError:
+            pass
+    docs = q.order_by(Document.created_at.desc()).offset(offset).limit(min(limit, 500)).all()
+    return [{
+        "id": d.id, "number": d.number, "title": d.title, "doc_type": d.doc_type,
+        "status": d.status, "priority": d.priority, "deadline": d.deadline or "",
+        "author_id": d.author_id, "created_at": d.created_at.isoformat() if d.created_at else "",
+        "extra_fields": json.loads(d.extra_fields) if isinstance(d.extra_fields, str) else (d.extra_fields or {}),
+    } for d in docs]
+
+
+@app.get("/api/v1/1c/documents/{doc_id}")
+def api_1c_get_document(doc_id: int, request: Request, db: Session = Depends(get_db)):
+    """1C API: get single document."""
+    _check_1c_token(request)
+    doc = db.query(Document).options(
+        joinedload(Document.author_user), joinedload(Document.approvals),
+    ).filter(Document.id == doc_id).first()
+    if not doc:
+        raise HTTPException(404, "Документ не найден")
+    return {
+        "id": doc.id, "number": doc.number, "title": doc.title,
+        "description": doc.description, "content": doc.content,
+        "doc_type": doc.doc_type, "status": doc.status,
+        "priority": doc.priority, "deadline": doc.deadline or "",
+        "author_id": doc.author_id,
+        "author_name": doc.author_user.name if doc.author_user else "",
+        "created_at": doc.created_at.isoformat() if doc.created_at else "",
+        "extra_fields": json.loads(doc.extra_fields) if isinstance(doc.extra_fields, str) else (doc.extra_fields or {}),
+        "approvals": [{"user_id": a.user_id, "status": a.status, "decided_at": a.decided_at.isoformat() if a.decided_at else ""} for a in doc.approvals],
+    }
+
+
+@app.post("/api/v1/1c/documents")
+def api_1c_create_document(request: Request, data: dict, db: Session = Depends(get_db)):
+    """1C API: create document."""
+    _check_1c_token(request)
+    doc_type = data.get("doc_type", "other")
+    if doc_type not in VALID_DOC_TYPES:
+        doc_type = "other"
+    number = gen_number(db, doc_type)
+    doc = Document(
+        number=number, title=sanitize(data.get("title", "Документ из 1С")),
+        description=sanitize(data.get("description", "")),
+        content=sanitize(data.get("content", "")),
+        doc_type=doc_type, status="draft",
+        priority=data.get("priority", "normal"),
+        extra_fields=json.dumps(data.get("extra_fields", {}), ensure_ascii=False),
+        deadline=data.get("deadline", ""),
+        author_id=data.get("author_id", 1),
+    )
+    db.add(doc)
+    db.flush()
+    add_history(db, doc, "1С", "Создан через 1С API")
+    db.commit()
+    return {"id": doc.id, "number": doc.number}
+
+
+@app.get("/api/v1/1c/users")
+def api_1c_list_users(request: Request, db: Session = Depends(get_db)):
+    """1C API: list users."""
+    _check_1c_token(request)
+    users = db.query(User).all()
+    return [{"id": u.id, "name": u.name, "department": u.department, "position": u.position, "role": u.role} for u in users]
+
+
+# ============ WATERMARK & ORG STAMP IN PDF ============
+
+ORG_NAME = os.getenv("ORG_NAME", "ОсОО Эволюшн Групп")
+ORG_INN = os.getenv("ORG_INN", "")
 
 
 # ============ AI ASSISTANT (Groq + Llama) ============

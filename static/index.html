@@ -2,7 +2,11 @@
 <html lang="ru" data-theme="light">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#2563eb">
+<link rel="manifest" href="/static/manifest.json">
 <title>ЭДО - Электронный документооборот</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
@@ -275,6 +279,7 @@ tr:hover td{background:var(--g50)}
       <button class="nav-item admin-only hidden" data-page="users" onclick="showPage('users')"><span>&#128101;</span> Сотрудники</button>
       <button class="nav-item admin-only hidden" data-page="settings" onclick="showPage('settings')"><span>&#9881;</span> Настройки</button>
       <button class="nav-item admin-only hidden" data-page="audit" onclick="showPage('audit')"><span>&#128270;</span> Журнал действий</button>
+      <button class="nav-item admin-only hidden" data-page="reports" onclick="showPage('reports')"><span>&#128202;</span> Отчёты</button>
       <div class="nav-section buh-only hidden">Бухгалтерия</div>
       <button class="nav-item buh-only hidden" data-page="incoming" onclick="showPage('incoming')"><span>&#128229;</span> Входящие</button>
       <button class="nav-item buh-only hidden" data-page="outgoing" onclick="showPage('outgoing')"><span>&#128228;</span> Исходящие</button>
@@ -300,6 +305,7 @@ tr:hover td{background:var(--g50)}
         <input placeholder="Поиск документов..." id="globalSearch" oninput="onGlobalSearch(this.value)">
       </div>
       <div class="top-actions">
+        <select style="padding:.3rem .4rem;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg-card);color:var(--text);font-size:.75rem;cursor:pointer" onchange="setLanguage(this.value)"><option value="ru">RU</option><option value="en">EN</option><option value="kg">KG</option></select>
         <button class="theme-toggle" onclick="toggleTheme()" title="Переключить тему">&#127763;</button>
       </div>
     </div>
@@ -418,7 +424,7 @@ async function loadTasks(){try{allTasks=await api('/api/tasks');var myPending=al
 async function loadTrash(){try{trashDocs=await api('/api/documents/trash')}catch(e){trashDocs=[]}}
 function updateApprovalBadge(){var count=documents.filter(function(d){return canUserApprove(d)}).length;var badge=document.getElementById('approvalBadge');if(count>0){badge.textContent=count;badge.classList.remove('hidden')}else{badge.classList.add('hidden')}}
 
-function showPage(name,param){var adminPages=['kanban','calendar','analytics','archive','trash','users','settings','audit','nomenclature'];if(currentUser&&currentUser.role!=='admin'&&adminPages.indexOf(name)>=0){name='documents'}var buhPages=['incoming','outgoing','journal'];if(currentUser&&buhPages.indexOf(name)>=0&&currentUser.role!=='admin'&&currentUser.department!=='Бухгалтерия'){name='documents'}currentPage=name;currentPageParam=param;selectedIds.clear();sortCol='';sortDir=1;if(name!=='detail')aiSetDoc(null);document.querySelectorAll('.nav-item').forEach(function(n){n.classList.toggle('active',n.dataset.page===name)});if(window.innerWidth<768)document.getElementById('sidebar').classList.remove('open');var pc=document.getElementById('pageContent');switch(name){case'dashboard':renderDashboard(pc);break;case'documents':renderDocuments(pc);break;case'create':renderCreateEdit(pc,param);break;case'detail':renderDetail(pc,param);break;case'approvals':renderApprovals(pc);break;case'kanban':renderKanban(pc);break;case'calendar':renderCalendar(pc);break;case'analytics':renderAnalytics(pc);break;case'archive':renderArchive(pc);break;case'notifications':renderNotifications(pc);break;case'users':renderUsers(pc);break;case'settings':renderSettings(pc);break;case'templates':renderTemplates(pc);break;case'tasks':renderTasks(pc);break;case'trash':renderTrash(pc);break;case'profile':renderProfile(pc);break;case'incoming':renderIncoming(pc);break;case'outgoing':renderOutgoing(pc);break;case'audit':renderAuditLog(pc);break;case'journal':renderJournal(pc);break;case'nomenclature':renderNomenclature(pc);break;default:pc.innerHTML='<p>\u0421\u0442\u0440\u0430\u043d\u0438\u0446\u0430 \u043d\u0435 \u043d\u0430\u0439\u0434\u0435\u043d\u0430</p>'}}
+function showPage(name,param){var adminPages=['kanban','calendar','analytics','archive','trash','users','settings','audit','nomenclature','reports'];if(currentUser&&currentUser.role!=='admin'&&adminPages.indexOf(name)>=0){name='documents'}var buhPages=['incoming','outgoing','journal'];if(currentUser&&buhPages.indexOf(name)>=0&&currentUser.role!=='admin'&&currentUser.department!=='Бухгалтерия'){name='documents'}currentPage=name;currentPageParam=param;selectedIds.clear();sortCol='';sortDir=1;if(name!=='detail')aiSetDoc(null);document.querySelectorAll('.nav-item').forEach(function(n){n.classList.toggle('active',n.dataset.page===name)});if(window.innerWidth<768)document.getElementById('sidebar').classList.remove('open');var pc=document.getElementById('pageContent');switch(name){case'dashboard':renderDashboard(pc);break;case'documents':renderDocuments(pc);break;case'create':renderCreateEdit(pc,param);break;case'detail':renderDetail(pc,param);break;case'approvals':renderApprovals(pc);break;case'kanban':renderKanban(pc);break;case'calendar':renderCalendar(pc);break;case'analytics':renderAnalytics(pc);break;case'archive':renderArchive(pc);break;case'notifications':renderNotifications(pc);break;case'users':renderUsers(pc);break;case'settings':renderSettings(pc);break;case'templates':renderTemplates(pc);break;case'tasks':renderTasks(pc);break;case'trash':renderTrash(pc);break;case'profile':renderProfile(pc);break;case'incoming':renderIncoming(pc);break;case'outgoing':renderOutgoing(pc);break;case'audit':renderAuditLog(pc);break;case'journal':renderJournal(pc);break;case'nomenclature':renderNomenclature(pc);break;case'reports':renderReports(pc);break;default:pc.innerHTML='<p>\u0421\u0442\u0440\u0430\u043d\u0438\u0446\u0430 \u043d\u0435 \u043d\u0430\u0439\u0434\u0435\u043d\u0430</p>'}}
 
 function toggleSidebar(){document.getElementById('sidebar').classList.toggle('open')}
 function toggleTheme(){var t=document.documentElement.getAttribute('data-theme')==='dark'?'light':'dark';document.documentElement.setAttribute('data-theme',t);localStorage.setItem('edo-theme',t);var btn=document.querySelector('.theme-toggle');if(btn)btn.innerHTML=t==='dark'?'&#9728;':'&#127763;';btn.title=t==='dark'?'Светлая тема':'Тёмная тема'}
@@ -478,7 +484,10 @@ function renderDashboard(el){
   // My tasks widget
   var tkH=myTasks.slice(0,5).map(function(t){return'<div style="padding:.5rem .75rem;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between"><div><div style="font-weight:600;font-size:.8125rem">'+esc(t.title)+'</div><div style="font-size:.7rem;color:var(--text-secondary)">'+esc(TASK_STATUSES[t.status]||t.status)+(t.deadline?' &middot; до '+formatDate(t.deadline):'')+'</div></div><span class="badge badge-'+(t.priority==='high'||t.priority==='critical'?'high':'medium')+'">'+esc(PRIORITIES[t.priority]||t.priority)+'</span></div>'}).join('');
   if(myTasks.length===0)tkH='<div style="padding:1rem;text-align:center;color:var(--text-secondary)">Нет активных поручений</div>';
-  var oh='';if(overdue.length>0){oh='<div class="card" style="margin-bottom:1rem"><div class="card-header" style="color:var(--danger)">Просроченные дедлайны ('+overdue.length+')</div><div class="card-body" style="padding:0">'+overdue.slice(0,5).map(function(d){return'<div style="padding:.5rem .75rem;border-bottom:1px solid var(--border);cursor:pointer" onclick="showPage(\'detail\','+d.id+')"><span style="font-weight:600;font-size:.8125rem">'+esc(d.title)+'</span><span style="font-size:.7rem;color:var(--danger);margin-left:.5rem">'+formatDate(d.deadline)+'</span></div>'}).join('')+'</div></div>'}
+  // Overdue tasks
+  var overdueTasks=allTasks.filter(function(t){return t.assignee_id===currentUser.id&&(t.status==='pending'||t.status==='in_progress')&&t.deadline&&new Date(t.deadline)<new Date()});
+  var oh='';if(overdue.length>0){oh='<div class="card" style="margin-bottom:1rem"><div class="card-header" style="color:var(--danger)">&#9888; Просроченные документы ('+overdue.length+')</div><div class="card-body" style="padding:0">'+overdue.slice(0,5).map(function(d){return'<div style="padding:.5rem .75rem;border-bottom:1px solid var(--border);cursor:pointer" onclick="showPage(\'detail\','+d.id+')"><span style="font-weight:600;font-size:.8125rem">'+esc(d.title)+'</span><span style="font-size:.7rem;color:var(--danger);margin-left:.5rem">'+formatDate(d.deadline)+'</span></div>'}).join('')+'</div></div>'}
+  if(overdueTasks.length>0){oh+='<div class="card" style="margin-bottom:1rem"><div class="card-header" style="color:var(--danger)">&#9888; Просроченные поручения ('+overdueTasks.length+')</div><div class="card-body" style="padding:0">'+overdueTasks.slice(0,5).map(function(t){return'<div style="padding:.5rem .75rem;border-bottom:1px solid var(--border)"><span style="font-weight:600;font-size:.8125rem">'+esc(t.title)+'</span><span style="font-size:.7rem;color:var(--danger);margin-left:.5rem">'+formatDate(t.deadline)+'</span></div>'}).join('')+'</div></div>'}
   el.innerHTML='<h2 class="page-title">Дашборд</h2><div class="card" style="margin-bottom:1.5rem"><div class="card-header">Быстрое создание</div><div class="card-body"><div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(90px,1fr));gap:.5rem">'+qcH+'</div></div></div><div class="stats-grid"><div class="stat-card primary"><div class="stat-label">Всего документов</div><div class="stat-value">'+total+'</div><div class="stat-sub">в системе</div></div><div class="stat-card warning"><div class="stat-label">На согласовании</div><div class="stat-value">'+pending+'</div><div class="stat-sub">ожидают решения</div></div><div class="stat-card success"><div class="stat-label">Согласовано</div><div class="stat-value">'+approved+'</div><div class="stat-sub">подтверждено</div></div><div class="stat-card danger"><div class="stat-label">Отклонено</div><div class="stat-value">'+rejected+'</div><div class="stat-sub">требуют доработки</div></div><div class="stat-card info"><div class="stat-label">Исполнено</div><div class="stat-value">'+resolved+'</div><div class="stat-sub">с резолюцией</div></div></div><div class="grid-2" style="margin-bottom:1.5rem"><div class="card"><div class="card-header">Ожидают вашего согласования ('+myPending.length+')</div><div class="card-body" style="padding:0">'+pc+'</div></div><div class="card"><div class="card-header">Мои поручения ('+myTasks.length+')</div><div class="card-body" style="padding:0">'+tkH+'</div></div></div><div class="grid-2" style="margin-bottom:1.5rem"><div class="card"><div class="card-header">Последние документы</div><div class="card-body" style="padding:0"><div class="table-wrap"><table><thead><tr><th>\u2116</th><th>Название</th><th>Статус</th><th>Дата</th></tr></thead><tbody>'+rr+'</tbody></table></div></div></div><div>'+oh+'<div class="card"><div class="card-header">По статусам</div><div class="card-body" style="text-align:center"><div class="pie-chart" style="background:'+cg+'"></div><div class="pie-legend">'+pl+'</div></div></div></div></div>'
 }
 async function quickApprove(id){try{await api('/api/documents/'+id+'/approve',{method:'POST',body:{comment:''}});toast('Документ согласован','success');await loadDocs();await loadNotifs();showPage(currentPage,currentPageParam)}catch(e){toast(e.message,'error')}}
@@ -488,7 +497,7 @@ function renderDocuments(el){
   var so=Object.keys(STATUSES).map(function(k){return'<option value="'+k+'">'+esc(STATUSES[k])+'</option>'}).join('');
   var to=Object.keys(DOC_TYPES).map(function(k){return'<option value="'+k+'">'+esc(DOC_TYPES[k])+'</option>'}).join('');
   var tgo=allTags.map(function(t){return'<option value="'+t.id+'">'+esc(t.name)+'</option>'}).join('');
-  el.innerHTML='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;flex-wrap:wrap;gap:.5rem"><h2 class="page-title" style="margin-bottom:0">Документы</h2><div style="display:flex;gap:.5rem"><button class="btn btn-outline btn-sm" onclick="exportCSV()">&#128229; CSV</button><button class="btn btn-outline" onclick="importDocFile()">&#128228; Загрузить PDF/Word</button><button class="btn btn-primary" onclick="showPage(\'create\')">&#10010; Новый документ</button></div></div><div class="filter-bar"><select id="filterStatus" onchange="renderDocTable()"><option value="">Все статусы</option>'+so+'</select><select id="filterType" onchange="renderDocTable()"><option value="">Все типы</option>'+to+'</select><select id="filterTag" onchange="renderDocTable()"><option value="">Все метки</option>'+tgo+'</select><input type="text" id="filterSearch" placeholder="Поиск..." oninput="renderDocTable()"></div><div id="bulkBarWrap"></div><div class="card"><div class="card-body" style="padding:0"><div class="table-wrap"><table id="docTable"></table></div></div></div>';
+  el.innerHTML='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;flex-wrap:wrap;gap:.5rem"><h2 class="page-title" style="margin-bottom:0">Документы</h2><div style="display:flex;gap:.5rem"><button class="btn btn-outline btn-sm" onclick="exportCSV()">&#128229; CSV</button><button class="btn btn-outline" onclick="importDocFile()">&#128228; PDF/Word</button><button class="btn btn-outline" onclick="importZipFile()">&#128230; ZIP</button><button class="btn btn-primary" onclick="showPage(\'create\')">&#10010; Новый документ</button></div></div><div class="filter-bar"><select id="filterStatus" onchange="renderDocTable()"><option value="">Все статусы</option>'+so+'</select><select id="filterType" onchange="renderDocTable()"><option value="">Все типы</option>'+to+'</select><select id="filterTag" onchange="renderDocTable()"><option value="">Все метки</option>'+tgo+'</select><input type="text" id="filterSearch" placeholder="Поиск..." oninput="renderDocTable()"></div><div id="bulkBarWrap"></div><div class="card"><div class="card-body" style="padding:0"><div class="table-wrap"><table id="docTable"></table></div></div></div>';
   renderDocTable()
 }
 function renderDocTable(){
@@ -587,6 +596,7 @@ async function saveDoc(e,docId){e.preventDefault();var tagIds=[];document.queryS
 
 function renderDetail(el,docId){
   aiSetDoc(docId);
+  setTimeout(function(){loadQRCode(docId)},100);
   var doc=documents.find(function(d){return d.id===docId});
   if(!doc){el.innerHTML='<p>Документ не найден. <a href="#" onclick="event.preventDefault();showPage(\'documents\')">Назад</a></p>';return}
   var prog=getApprovalProgress(doc),canA=canUserApprove(doc),isAuth=doc.author_id===currentUser.id,isAdm=currentUser.role==='admin';
@@ -617,7 +627,7 @@ function renderDetail(el,docId){
   actH+='<button class="btn btn-outline btn-block" onclick="saveDocAsTemplate('+doc.id+')">&#128203; \u0421\u043e\u0445\u0440\u0430\u043d\u0438\u0442\u044c \u043a\u0430\u043a \u0448\u0430\u0431\u043b\u043e\u043d</button>';
   actH+='<button class="btn btn-outline btn-block" onclick="printDoc('+doc.id+')">&#128424; \u041f\u0435\u0447\u0430\u0442\u044c</button>';
   if(currentUser&&currentUser.role==='admin')actH+='<button class="btn btn-outline btn-block" onclick="assignToCase('+doc.id+')">&#128193; \u041d\u043e\u043c\u0435\u043d\u043a\u043b\u0430\u0442\u0443\u0440\u0430</button>';
-  el.innerHTML='<div style="margin-bottom:1rem"><a href="#" onclick="event.preventDefault();showPage(\'documents\')" style="font-size:.8125rem">&larr; Назад к документам</a></div><div style="display:flex;align-items:center;gap:.75rem;margin-bottom:1.25rem;flex-wrap:wrap"><h2 style="font-size:1.5rem;font-weight:700;margin:0">'+esc(doc.title)+'</h2><span style="color:var(--text-secondary);font-size:.875rem">'+esc(doc.number||'#'+doc.id)+'</span>'+statusBadge(doc.status)+' '+tagsH+'</div><div class="doc-detail"><div class="doc-main"><div class="card" style="margin-bottom:1rem"><div class="card-header">Информация</div><div class="card-body"><div class="info-grid"><div class="info-label">Тип</div><div class="info-value">'+esc(DOC_TYPES[doc.doc_type]||doc.doc_type)+'</div><div class="info-label">Автор</div><div class="info-value">'+esc(doc.author_name)+'</div><div class="info-label">Номер</div><div class="info-value">'+esc(doc.number||'\u2014')+'</div><div class="info-label">Приоритет</div><div class="info-value">'+(priorityBadge(doc.priority)||'\u2014')+'</div><div class="info-label">Создан</div><div class="info-value">'+formatDateTime(doc.created_at)+'</div><div class="info-label">Обновл\u0451н</div><div class="info-value">'+formatDateTime(doc.updated_at)+'</div><div class="info-label">Дедлайн</div><div class="info-value">'+(doc.deadline?formatDate(doc.deadline):'\u2014')+'</div><div class="info-label">Описание</div><div class="info-value">'+(esc(doc.description)||'\u2014')+'</div></div>'+extraH+attH+'</div></div><div class="card" style="margin-bottom:1rem"><div class="card-header">Содержание</div><div class="card-body"><div class="content-block">'+esc(doc.content)+'</div></div></div>'+relH+'<div class="card"><div class="card-header">Комментарии ('+(doc.comments||[]).length+')</div><div class="card-body">'+comH+'<form onsubmit="return addComment(event,'+doc.id+')" style="margin-top:1rem;display:flex;gap:.5rem"><input type="text" id="commentText" placeholder="Добавить комментарий..." style="flex:1;padding:.5rem .75rem;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg);color:var(--text)"><button class="btn btn-primary" type="submit">Отправить</button></form></div></div></div><div class="doc-sidebar-panel"><div class="card"><div class="card-header">Действия</div><div class="card-body" style="display:flex;flex-direction:column;gap:.375rem">'+actH+'</div></div><div class="card"><div class="card-header">Согласование</div><div class="card-body">'+apH+'</div></div>'+resH+'<div class="card"><div class="card-header">QR-код</div><div class="card-body" style="text-align:center"><div style="width:120px;height:120px;background:var(--g200);border-radius:var(--radius);margin:0 auto;display:flex;align-items:center;justify-content:center;font-size:.75rem;color:var(--text-secondary)">QR-код</div></div></div>'+hisH+verH+'</div></div>'
+  el.innerHTML='<div style="margin-bottom:1rem"><a href="#" onclick="event.preventDefault();showPage(\'documents\')" style="font-size:.8125rem">&larr; Назад к документам</a></div><div style="display:flex;align-items:center;gap:.75rem;margin-bottom:1.25rem;flex-wrap:wrap"><h2 style="font-size:1.5rem;font-weight:700;margin:0">'+esc(doc.title)+'</h2><span style="color:var(--text-secondary);font-size:.875rem">'+esc(doc.number||'#'+doc.id)+'</span>'+statusBadge(doc.status)+' '+tagsH+'</div><div class="doc-detail"><div class="doc-main"><div class="card" style="margin-bottom:1rem"><div class="card-header">Информация</div><div class="card-body"><div class="info-grid"><div class="info-label">Тип</div><div class="info-value">'+esc(DOC_TYPES[doc.doc_type]||doc.doc_type)+'</div><div class="info-label">Автор</div><div class="info-value">'+esc(doc.author_name)+'</div><div class="info-label">Номер</div><div class="info-value">'+esc(doc.number||'\u2014')+'</div><div class="info-label">Приоритет</div><div class="info-value">'+(priorityBadge(doc.priority)||'\u2014')+'</div><div class="info-label">Создан</div><div class="info-value">'+formatDateTime(doc.created_at)+'</div><div class="info-label">Обновл\u0451н</div><div class="info-value">'+formatDateTime(doc.updated_at)+'</div><div class="info-label">Дедлайн</div><div class="info-value">'+(doc.deadline?formatDate(doc.deadline):'\u2014')+'</div><div class="info-label">Описание</div><div class="info-value">'+(esc(doc.description)||'\u2014')+'</div></div>'+extraH+attH+'</div></div><div class="card" style="margin-bottom:1rem"><div class="card-header">Содержание</div><div class="card-body"><div class="content-block">'+esc(doc.content)+'</div></div></div>'+relH+'<div class="card"><div class="card-header">Комментарии ('+(doc.comments||[]).length+')</div><div class="card-body">'+comH+'<form onsubmit="return addComment(event,'+doc.id+')" style="margin-top:1rem;display:flex;gap:.5rem"><input type="text" id="commentText" placeholder="Добавить комментарий..." style="flex:1;padding:.5rem .75rem;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg);color:var(--text)"><button class="btn btn-primary" type="submit">Отправить</button></form></div></div></div><div class="doc-sidebar-panel"><div class="card"><div class="card-header">Действия</div><div class="card-body" style="display:flex;flex-direction:column;gap:.375rem">'+actH+'</div></div><div class="card"><div class="card-header">Согласование</div><div class="card-body">'+apH+'</div></div>'+resH+'<div class="card"><div class="card-header">QR-код</div><div class="card-body" style="text-align:center"><div id="qrCodeContainer" style="margin:0 auto"><div style="width:120px;height:120px;background:var(--g200);border-radius:var(--radius);margin:0 auto;display:flex;align-items:center;justify-content:center;font-size:.75rem;color:var(--text-secondary)">Загрузка...</div></div></div></div>'+hisH+verH+'</div></div>'
 }
 async function addComment(e,docId){e.preventDefault();var text=document.getElementById('commentText').value.trim();if(!text)return false;try{await api('/api/documents/'+docId+'/comments',{method:'POST',body:{text:text}});toast('Комментарий добавлен','success');await loadDocs();showPage('detail',docId)}catch(err){toast(err.message,'error')}return false}
 async function approveDoc(id){var comment=prompt('Комментарий (необязательно):')||'';try{await api('/api/documents/'+id+'/approve',{method:'POST',body:{comment:comment}});toast('Документ согласован','success');await loadDocs();await loadNotifs();showPage('detail',id)}catch(e){toast(e.message,'error')}}
@@ -1250,7 +1260,6 @@ function aiExecuteAction(action,fill){
   if(!action||!action.page)return;
   var page=action.page;
   var param=action.param||null;
-  // Delay navigation so user sees the AI message first
   setTimeout(function(){
     if(page==='create'){
       showPage('create');
@@ -1269,6 +1278,88 @@ function aiExecuteAction(action,fill){
       showPage(page);
     }
   },1500);
+}
+
+// ============ QR CODE ============
+function loadQRCode(docId){
+  var container=document.getElementById('qrCodeContainer');
+  if(!container)return;
+  api('/api/documents/'+docId+'/qr').then(function(data){
+    if(data&&data.qr_base64){
+      container.innerHTML='<img src="data:image/png;base64,'+data.qr_base64+'" alt="QR" style="width:120px;height:120px;border-radius:var(--radius)">';
+    }else{
+      container.innerHTML='<div style="font-size:.75rem;color:var(--text-secondary)">QR недоступен</div>';
+    }
+  }).catch(function(){
+    container.innerHTML='<div style="font-size:.75rem;color:var(--text-secondary)">QR недоступен</div>';
+  });
+}
+
+// ============ REPORTS ============
+async function renderReports(el){
+  var today=new Date().toISOString().slice(0,10);
+  var monthAgo=new Date(Date.now()-30*86400000).toISOString().slice(0,10);
+  var to=Object.keys(DOC_TYPES).map(function(k){return'<option value="'+k+'">'+esc(DOC_TYPES[k])+'</option>'}).join('');
+  var so=Object.keys(STATUSES).map(function(k){return'<option value="'+k+'">'+esc(STATUSES[k])+'</option>'}).join('');
+  el.innerHTML='<h2 class="page-title">Отчёты за период</h2><div class="card" style="margin-bottom:1rem"><div class="card-body"><div class="filter-bar"><label style="font-size:.8rem;font-weight:600">С:</label><input type="date" id="repFrom" value="'+monthAgo+'"><label style="font-size:.8rem;font-weight:600">По:</label><input type="date" id="repTo" value="'+today+'"><select id="repType"><option value="">Все типы</option>'+to+'</select><select id="repStatus"><option value="">Все статусы</option>'+so+'</select><button class="btn btn-primary" onclick="loadReport()">Сформировать</button><button class="btn btn-outline" onclick="exportReportCSV()">&#128229; CSV</button></div></div></div><div id="reportResult"></div>';
+  loadReport();
+}
+async function loadReport(){
+  var f=document.getElementById('repFrom').value,t=document.getElementById('repTo').value;
+  var tp=document.getElementById('repType').value,st=document.getElementById('repStatus').value;
+  var url='/api/reports?date_from='+f+'&date_to='+t;
+  if(tp)url+='&doc_type='+tp;
+  if(st)url+='&status='+st;
+  try{
+    var data=await api(url);
+    var byStatus=data.by_status||{};var byType=data.by_type||{};var byAuthor=data.by_author||{};
+    var stH=Object.keys(byStatus).map(function(k){return'<div style="display:flex;justify-content:space-between;padding:.25rem 0;font-size:.8125rem"><span>'+esc(STATUSES[k]||k)+'</span><b>'+byStatus[k]+'</b></div>'}).join('');
+    var tpH=Object.keys(byType).map(function(k){return'<div style="display:flex;justify-content:space-between;padding:.25rem 0;font-size:.8125rem"><span>'+esc(DOC_TYPES[k]||k)+'</span><b>'+byType[k]+'</b></div>'}).join('');
+    var auH=Object.keys(byAuthor).map(function(k){return'<div style="display:flex;justify-content:space-between;padding:.25rem 0;font-size:.8125rem"><span>'+esc(k)+'</span><b>'+byAuthor[k]+'</b></div>'}).join('');
+    var rows=(data.items||[]).map(function(d){return'<tr style="cursor:pointer" onclick="showPage(\'detail\','+d.id+')"><td>'+esc(d.number)+'</td><td>'+esc(d.title)+'</td><td>'+esc(DOC_TYPES[d.doc_type]||d.doc_type)+'</td><td>'+statusBadge(d.status)+'</td><td>'+esc(d.author_name)+'</td><td>'+formatDate(d.created_at)+'</td></tr>'}).join('');
+    document.getElementById('reportResult').innerHTML='<div class="stats-grid"><div class="stat-card primary"><div class="stat-label">Всего документов</div><div class="stat-value">'+data.total+'</div></div></div><div class="grid-3" style="margin-bottom:1rem"><div class="card"><div class="card-header">По статусам</div><div class="card-body">'+stH+'</div></div><div class="card"><div class="card-header">По типам</div><div class="card-body">'+tpH+'</div></div><div class="card"><div class="card-header">По авторам</div><div class="card-body">'+auH+'</div></div></div><div class="card"><div class="card-header">Документы ('+data.total+')</div><div class="card-body" style="padding:0"><div class="table-wrap"><table><thead><tr><th>№</th><th>Название</th><th>Тип</th><th>Статус</th><th>Автор</th><th>Дата</th></tr></thead><tbody>'+rows+'</tbody></table></div></div></div>';
+  }catch(e){toast(e.message,'error')}
+}
+function exportReportCSV(){
+  var f=document.getElementById('repFrom').value,t=document.getElementById('repTo').value;
+  var token=localStorage.getItem('edo-token');
+  var url=API_BASE+'/api/reports/export/csv?date_from='+f+'&date_to='+t;
+  fetch(url,{headers:{'Authorization':'Bearer '+token}}).then(function(r){if(!r.ok)throw new Error('Ошибка');return r.blob()}).then(function(blob){var a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='report.csv';document.body.appendChild(a);a.click();document.body.removeChild(a);toast('CSV скачан','success')}).catch(function(e){toast(e.message,'error')});
+}
+
+// ============ ZIP IMPORT ============
+function importZipFile(){
+  var inp=document.createElement('input');inp.type='file';inp.accept='.zip';
+  inp.onchange=async function(){
+    var file=inp.files[0];if(!file)return;
+    var fd=new FormData();fd.append('file',file);
+    try{
+      toast('Импорт ZIP архива...','info');
+      var res=await api('/api/documents/import-zip',{method:'POST',body:fd});
+      toast('Импортировано: '+res.count+' документов','success');
+      if(res.errors&&res.errors.length>0)toast('Ошибки: '+res.errors.length,'warning');
+      await loadDocs();showPage('documents');
+    }catch(e){toast(e.message||'Ошибка импорта','error')}
+  };inp.click();
+}
+
+// ============ MULTILINGUAL (KG/EN/RU) ============
+var currentLang=localStorage.getItem('edo-lang')||'ru';
+var TRANSLATIONS={
+  ru:{dashboard:'Дашборд',documents:'Документы',create:'Новый документ',approvals:'Согласование',templates:'Шаблоны',tasks:'Поручения',notifications:'Уведомления',profile:'Профиль',settings:'Настройки',users:'Сотрудники',search:'Поиск документов...',logout:'Выход',login:'Вход',register:'Регистрация',language:'Язык'},
+  en:{dashboard:'Dashboard',documents:'Documents',create:'New Document',approvals:'Approvals',templates:'Templates',tasks:'Tasks',notifications:'Notifications',profile:'Profile',settings:'Settings',users:'Employees',search:'Search documents...',logout:'Logout',login:'Login',register:'Registration',language:'Language'},
+  kg:{dashboard:'Башкы бет',documents:'Документтер',create:'Жаңы документ',approvals:'Макулдашуу',templates:'Шаблондор',tasks:'Тапшырмалар',notifications:'Билдирүүлөр',profile:'Профиль',settings:'Жөндөөлөр',users:'Кызматкерлер',search:'Документ издөө...',logout:'Чыгуу',login:'Кирүү',register:'Каттоо',language:'Тил'}
+};
+function t(key){return(TRANSLATIONS[currentLang]||TRANSLATIONS.ru)[key]||key}
+function setLanguage(lang){
+  currentLang=lang;localStorage.setItem('edo-lang',lang);
+  var si=document.getElementById('globalSearch');if(si)si.placeholder=t('search');
+  toast('Язык: '+(lang==='ru'?'Русский':lang==='en'?'English':'Кыргызча'),'info');
+}
+
+// ============ SERVICE WORKER (PWA) ============
+if('serviceWorker' in navigator){
+  navigator.serviceWorker.register('/static/sw.js').catch(function(){});
 }
 
 </script>
