@@ -3741,6 +3741,204 @@ def export_reports_xlsx(
                         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
 
+# ============ VERSION ROLLBACK ============
+
+@app.post("/api/documents/{doc_id}/rollback/{version_id}")
+def rollback_version(doc_id: int, version_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    doc = load_doc(db, doc_id)
+    if doc.author_id != user.id and user.role != "admin":
+        raise HTTPException(403, "Нет прав")
+    version = db.query(Version).filter(Version.id == version_id, Version.document_id == doc_id).first()
+    if not version:
+        raise HTTPException(404, "Версия не найдена")
+    # Save current as version before rollback
+    db.add(Version(document_id=doc.id, title=doc.title, content=doc.content, user_name=user.name))
+    doc.title = version.title
+    doc.content = version.content
+    doc.updated_at = datetime.now(timezone.utc)
+    add_history(db, doc, user.name, f"Откат к версии от {version.created_at.strftime('%d.%m.%Y %H:%M') if version.created_at else '?'}")
+    add_audit(db, user.id, user.name, "rollback", "document", doc.id, f"version_id={version_id}")
+    db.commit()
+    return doc_to_out(load_doc(db, doc.id))
+
+
+# ============ BARCODE ============
+
+@app.get("/api/documents/{doc_id}/barcode")
+def get_barcode(doc_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    doc = load_doc(db, doc_id)
+    import io, base64
+    from PIL import Image, ImageDraw, ImageFont
+
+    code = f"EDO-{doc.number or doc.id}"
+    # Generate Code128-like barcode using PIL
+    char_set = " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~"
+    patterns = []
+    for ch in code:
+        idx = char_set.index(ch) if ch in char_set else 0
+        # Simple binary pattern based on char code
+        val = ord(ch)
+        bits = format(val, '08b')
+        patterns.append(bits)
+
+    bar_w, bar_h = 3, 80
+    total_w = sum(len(p) for p in patterns) * bar_w + 40
+    img = Image.new('RGB', (max(total_w, 200), bar_h + 30), 'white')
+    draw = ImageDraw.Draw(img)
+
+    x = 20
+    for pattern in patterns:
+        for bit in pattern:
+            if bit == '1':
+                draw.rectangle([x, 5, x + bar_w - 1, bar_h], fill='black')
+            x += bar_w
+
+    draw.text((20, bar_h + 5), code, fill='black')
+
+    buf = io.BytesIO()
+    img.save(buf, format='PNG')
+    buf.seek(0)
+    b64 = base64.b64encode(buf.read()).decode()
+    return {"barcode_base64": b64, "code": code}
+
+
+# ============ PERSONAL STATS ============
+
+@app.get("/api/my-stats")
+def my_stats(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    from sqlalchemy import func
+    total_docs = db.query(func.count(Document.id)).filter(Document.author_id == user.id, Document.deleted == False).scalar()
+    by_status = {}
+    docs = db.query(Document).filter(Document.author_id == user.id, Document.deleted == False).all()
+    for d in docs:
+        by_status[d.status] = by_status.get(d.status, 0) + 1
+
+    approvals_done = db.query(func.count(Approval.id)).filter(
+        Approval.user_id == user.id, Approval.status.in_(["approved", "rejected"])
+    ).scalar()
+    approvals_pending = db.query(func.count(Approval.id)).filter(
+        Approval.user_id == user.id, Approval.status == "pending"
+    ).scalar()
+
+    tasks_total = db.query(func.count(Task.id)).filter(Task.assignee_id == user.id).scalar()
+    tasks_done = db.query(func.count(Task.id)).filter(Task.assignee_id == user.id, Task.status == "completed").scalar()
+    tasks_overdue = 0
+    my_tasks = db.query(Task).filter(Task.assignee_id == user.id, Task.status.in_(["pending", "in_progress"])).all()
+    now = datetime.now(timezone.utc)
+    for t in my_tasks:
+        if t.deadline:
+            try:
+                dl = datetime.strptime(t.deadline[:10], "%Y-%m-%d").replace(tzinfo=timezone.utc)
+                if dl < now:
+                    tasks_overdue += 1
+            except (ValueError, TypeError):
+                pass
+
+    comments_count = db.query(func.count(Comment.id)).filter(Comment.user_id == user.id).scalar()
+
+    # Monthly activity (last 6 months)
+    monthly = []
+    for i in range(5, -1, -1):
+        from datetime import timedelta
+        month_start = (now.replace(day=1) - timedelta(days=30 * i)).replace(day=1, hour=0, minute=0, second=0)
+        if i > 0:
+            month_end = (now.replace(day=1) - timedelta(days=30 * (i - 1))).replace(day=1, hour=0, minute=0, second=0)
+        else:
+            month_end = now
+        cnt = db.query(func.count(Document.id)).filter(
+            Document.author_id == user.id, Document.deleted == False,
+            Document.created_at >= month_start, Document.created_at < month_end,
+        ).scalar()
+        monthly.append({"month": month_start.strftime("%Y-%m"), "count": cnt})
+
+    return {
+        "total_docs": total_docs, "by_status": by_status,
+        "approvals_done": approvals_done, "approvals_pending": approvals_pending,
+        "tasks_total": tasks_total, "tasks_done": tasks_done, "tasks_overdue": tasks_overdue,
+        "comments_count": comments_count, "monthly": monthly,
+    }
+
+
+# ============ COMMENT ATTACHMENTS ============
+
+@app.post("/api/documents/{doc_id}/comments/with-file")
+async def add_comment_with_file(
+    doc_id: int, text: str = Form(""), file: UploadFile = File(None),
+    db: Session = Depends(get_db), user: User = Depends(get_current_user),
+):
+    doc = load_doc(db, doc_id)
+    text_clean = sanitize(text)
+    file_info = ""
+    if file and file.filename:
+        doc_dir = os.path.join(UPLOAD_DIR, str(doc_id))
+        os.makedirs(doc_dir, exist_ok=True)
+        safe_name = secrets.token_hex(8) + "_" + file.filename
+        filepath = os.path.join(doc_dir, safe_name)
+        content = await file.read()
+        max_size = 10 * 1024 * 1024  # 10 MB for comments
+        if len(content) > max_size:
+            raise HTTPException(400, "Файл слишком большой (макс. 10 МБ)")
+        with open(filepath, "wb") as f:
+            f.write(content)
+        att = Attachment(document_id=doc_id, filename=file.filename, filepath=filepath,
+                         size=str(len(content)), filesize=len(content))
+        db.add(att)
+        db.flush()
+        file_info = f" [Файл: {file.filename}]"
+    comment_text = text_clean + file_info if text_clean or file_info else "Файл"
+    db.add(Comment(document_id=doc.id, user_id=user.id, text=comment_text))
+    add_history(db, doc, user.name, "Комментарий: " + comment_text[:40])
+    # @mention notifications
+    mentions = re.findall(r'@(\w+)', text_clean)
+    for login in mentions:
+        mentioned = db.query(User).filter(User.login == login).first()
+        if mentioned and mentioned.id != user.id:
+            add_notification(db, mentioned.id, "mention", "Упоминание",
+                             f'{user.name} упомянул вас в комментарии к "{doc.title}"', doc.id)
+    if doc.author_id != user.id:
+        add_notification(db, doc.author_id, "comment", "Комментарий",
+                         f'{user.name}: {comment_text[:50]}', doc.id)
+    doc.updated_at = datetime.now(timezone.utc)
+    db.commit()
+    return doc_to_out(load_doc(db, doc.id))
+
+
+# ============ BATCH PRINT ============
+
+@app.post("/api/documents/batch-print")
+def batch_print(data: dict, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    doc_ids = data.get("doc_ids", [])
+    if not doc_ids:
+        raise HTTPException(400, "Укажите документы")
+    if len(doc_ids) > 20:
+        raise HTTPException(400, "Максимум 20 документов")
+    results = []
+    for did in doc_ids:
+        doc = db.query(Document).filter(Document.id == did, Document.deleted == False).first()
+        if not doc:
+            continue
+        author = db.query(User).filter(User.id == doc.author_id).first()
+        approvals = []
+        for a in doc.approvals:
+            au = db.query(User).filter(User.id == a.user_id).first()
+            approvals.append({
+                "user_name": au.name if au else "", "status": a.status,
+                "comment": a.comment, "decided_at": a.decided_at.isoformat() if a.decided_at else "",
+            })
+        results.append({
+            "id": doc.id, "number": doc.number or str(doc.id), "title": doc.title,
+            "doc_type": DOC_TYPE_LABELS.get(doc.doc_type, doc.doc_type),
+            "status": STATUS_LABELS.get(doc.status, doc.status),
+            "priority": doc.priority, "content": doc.content,
+            "description": doc.description, "author_name": author.name if author else "",
+            "created_at": doc.created_at.isoformat() if doc.created_at else "",
+            "deadline": doc.deadline or "",
+            "approvals": approvals,
+            "resolution": doc.resolution.text if doc.resolution else "",
+        })
+    return {"documents": results, "count": len(results)}
+
+
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 @app.get("/")
