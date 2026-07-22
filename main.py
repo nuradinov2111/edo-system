@@ -1978,6 +1978,84 @@ async def import_document(
     return doc_to_out(load_doc(db, doc.id))
 
 
+# ============ UPLOAD CORRESPONDENCE (PDF) ============
+
+@app.post("/api/documents/upload-correspondence")
+async def upload_correspondence(
+    file: UploadFile = File(...),
+    direction: str = Form("incoming"),
+    doc_type: str = Form(""),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Загрузить PDF и создать входящий/исходящий документ с авто-номером."""
+    filename = file.filename or "file.pdf"
+    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+    if ext != "pdf":
+        raise HTTPException(400, "Поддерживаются только PDF файлы")
+
+    content_bytes = await file.read()
+    if len(content_bytes) > 20 * 1024 * 1024:
+        raise HTTPException(400, "Файл слишком большой (макс. 20 МБ)")
+
+    # Determine doc_type
+    if not doc_type:
+        doc_type = "incoming_letter" if direction == "incoming" else "outgoing_letter"
+    valid_types = INCOMING_TYPES if direction == "incoming" else OUTGOING_TYPES
+    if doc_type not in valid_types:
+        raise HTTPException(400, f"Недопустимый тип документа для {direction}")
+
+    # Extract text from PDF
+    text = ""
+    try:
+        import fitz, tempfile
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
+        tmp.write(content_bytes)
+        tmp.close()
+        pdf_doc = fitz.open(tmp.name)
+        pages = [page.get_text() for page in pdf_doc]
+        pdf_doc.close()
+        os.unlink(tmp.name)
+        text = "\n".join(pages)
+    except ImportError:
+        pass
+    except Exception:
+        pass
+
+    text = sanitize(text.strip()) if text.strip() else "(Содержимое PDF)"
+    title = filename.rsplit(".", 1)[0] if "." in filename else filename
+
+    # Create document with auto-number
+    number = gen_number(db, doc_type)
+    doc = Document(
+        number=number, title=sanitize(title), description=f"Загружен PDF: {filename}",
+        content=text, doc_type=doc_type, status="draft",
+        priority="normal", extra_fields="{}",
+        author_id=user.id,
+    )
+    db.add(doc)
+    db.flush()
+
+    # Save file as attachment
+    doc_dir = os.path.join(UPLOAD_DIR, str(doc.id))
+    os.makedirs(doc_dir, exist_ok=True)
+    safe_name = secrets.token_hex(8) + "_" + filename
+    filepath = os.path.join(doc_dir, safe_name)
+    with open(filepath, "wb") as f:
+        f.write(content_bytes)
+    db.add(Attachment(
+        document_id=doc.id, filename=filename,
+        filepath=filepath, size=str(len(content_bytes)),
+        filesize=len(content_bytes),
+    ))
+
+    dir_label = "входящий" if direction == "incoming" else "исходящий"
+    add_history(db, doc, user.name, f"Загружен {dir_label} PDF: {filename}, присвоен №{number}")
+    add_audit(db, user.id, user.name, "upload_correspondence", "document", doc.id, f"{dir_label} №{number}")
+    db.commit()
+    return doc_to_out(load_doc(db, doc.id))
+
+
 # ============ AI ASSISTANT (Groq + Llama) ============
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")

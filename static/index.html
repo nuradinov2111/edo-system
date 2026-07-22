@@ -797,6 +797,7 @@ function renderCorrespondence(el, direction) {
     '<h2 class="page-title" style="margin-bottom:0">' + title + '</h2>' +
     '<div style="display:flex;gap:.5rem">' +
     '<button class="btn btn-outline btn-sm" onclick="exportCorrespondenceCSV(\'' + direction + '\')">&#128229; CSV</button>' +
+    '<button class="btn btn-outline btn-sm" onclick="uploadCorrespondencePDF(\'' + direction + '\')">&#128206; Загрузить PDF</button>' +
     '<button class="btn btn-primary" onclick="showCorrespondenceCreate(\'' + direction + '\')">&#10010; ' + (isIncoming ? 'Зарегистрировать входящий' : 'Создать исходящий') + '</button>' +
     '</div></div>' +
     '<div class="filter-bar">' +
@@ -877,6 +878,40 @@ function renderCorrTable(direction) {
 
 function renderIncoming(el) { renderCorrespondence(el, 'incoming') }
 function renderOutgoing(el) { renderCorrespondence(el, 'outgoing') }
+
+function uploadCorrespondencePDF(direction) {
+  var isIncoming = direction === 'incoming';
+  var types = isIncoming ? INCOMING_TYPES : OUTGOING_TYPES;
+  var typeOptions = types.map(function(k) { return '<option value="' + k + '">' + esc(DOC_TYPES[k] || k) + '</option>' }).join('');
+  var ov = document.createElement('div');
+  ov.className = 'modal-overlay';
+  ov.onclick = function(e) { if (e.target === ov) ov.remove() };
+  ov.innerHTML = '<div class="modal-card"><div class="modal-header"><h3>' + (isIncoming ? 'Загрузить входящий PDF' : 'Загрузить исходящий PDF') + '</h3><button class="modal-close" onclick="this.closest(\'.modal-overlay\').remove()">&times;</button></div>' +
+    '<div class="modal-body"><div class="form-group"><label>Тип документа</label><select id="corrUploadType" class="form-control">' + typeOptions + '</select></div>' +
+    '<div class="form-group"><label>PDF файл</label><input type="file" id="corrUploadFile" accept=".pdf" class="form-control"></div></div>' +
+    '<div class="modal-footer"><button class="btn btn-outline" onclick="this.closest(\'.modal-overlay\').remove()">Отмена</button>' +
+    '<button class="btn btn-primary" id="corrUploadBtn">Загрузить</button></div></div>';
+  document.body.appendChild(ov);
+  document.getElementById('corrUploadBtn').onclick = async function() {
+    var fileInput = document.getElementById('corrUploadFile');
+    var typeSelect = document.getElementById('corrUploadType');
+    if (!fileInput || !fileInput.files[0]) { toast('Выберите PDF файл', 'error'); return; }
+    var file = fileInput.files[0];
+    if (!file.name.toLowerCase().endsWith('.pdf')) { toast('Только PDF файлы', 'error'); return; }
+    var fd = new FormData();
+    fd.append('file', file);
+    fd.append('direction', direction);
+    fd.append('doc_type', typeSelect.value);
+    try {
+      toast('Загрузка и обработка...', 'info');
+      ov.remove();
+      var doc = await api('/api/documents/upload-correspondence', {method: 'POST', body: fd});
+      toast('Документ №' + doc.number + ' создан из ' + file.name, 'success');
+      await loadDocs();
+      showPage('detail', doc.id);
+    } catch(e) { toast(e.message || 'Ошибка загрузки', 'error'); }
+  };
+}
 
 function showCorrespondenceCreate(direction) {
   var types = direction === 'incoming' ? INCOMING_TYPES : OUTGOING_TYPES;
