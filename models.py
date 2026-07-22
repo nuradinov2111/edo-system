@@ -254,6 +254,60 @@ class DocumentTemplate(Base):
     author = relationship("User")
 
 
+class Favorite(Base):
+    __tablename__ = "favorites"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    document_id = Column(Integer, ForeignKey("documents.id", ondelete="CASCADE"), nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+    user = relationship("User")
+    document = relationship("Document")
+
+
+class DocumentView(Base):
+    __tablename__ = "document_views"
+
+    id = Column(Integer, primary_key=True, index=True)
+    document_id = Column(Integer, ForeignKey("documents.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    viewed_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+    user = relationship("User")
+    document = relationship("Document")
+
+
+class Delegation(Base):
+    __tablename__ = "delegations"
+
+    id = Column(Integer, primary_key=True, index=True)
+    from_user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    to_user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    date_from = Column(String(20), nullable=False)
+    date_to = Column(String(20), nullable=False)
+    reason = Column(String(500), default="")
+    active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+    from_user = relationship("User", foreign_keys=[from_user_id])
+    to_user = relationship("User", foreign_keys=[to_user_id])
+
+
+class DocumentSignature(Base):
+    __tablename__ = "document_signatures"
+
+    id = Column(Integer, primary_key=True, index=True)
+    document_id = Column(Integer, ForeignKey("documents.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    hash = Column(String(64), nullable=False)
+    signature = Column(String(128), nullable=False)
+    signed_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+    user = relationship("User")
+    document = relationship("Document")
+
+
 class NomenclatureCase(Base):
     __tablename__ = "nomenclature_cases"
 

@@ -10,6 +10,7 @@ from models import (
     User, Document, Tag, Approval, Comment, Notification,
     History, Version, Attachment, ApprovalRoute, doc_tags, doc_related, Task, Resolution,
     AuditLog, DocumentTemplate, NomenclatureCase,
+    Favorite, DocumentView, Delegation, DocumentSignature,
 )
 from schemas import (
     UserRegister, UserLogin, UserOut, UserOutPublic, Token, UserCreate, DeputySet,
@@ -261,7 +262,8 @@ def run_migrations(eng):
         conn.commit()
 
     # Ensure new tables exist
-    for table_name in ["audit_log", "document_templates", "nomenclature_cases"]:
+    for table_name in ["audit_log", "document_templates", "nomenclature_cases",
+                        "favorites", "document_views", "delegations", "document_signatures"]:
         if table_name not in existing_tables:
             Base.metadata.create_all(bind=eng, tables=[Base.metadata.tables[table_name]])
 
@@ -3364,6 +3366,379 @@ def export_analytics_pdf(db: Session = Depends(get_db), user: User = Depends(get
     tmp = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
     pdf.output(tmp.name)
     return FileResponse(tmp.name, filename="analytics.pdf", media_type="application/pdf")
+
+
+# ============ FAVORITES ============
+
+@app.post("/api/documents/{doc_id}/favorite")
+def add_favorite(doc_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    doc = load_doc(db, doc_id)
+    existing = db.query(Favorite).filter(Favorite.user_id == user.id, Favorite.document_id == doc_id).first()
+    if existing:
+        return {"ok": True, "favorited": True}
+    db.add(Favorite(user_id=user.id, document_id=doc_id))
+    db.commit()
+    return {"ok": True, "favorited": True}
+
+
+@app.delete("/api/documents/{doc_id}/favorite")
+def remove_favorite(doc_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    fav = db.query(Favorite).filter(Favorite.user_id == user.id, Favorite.document_id == doc_id).first()
+    if fav:
+        db.delete(fav)
+        db.commit()
+    return {"ok": True, "favorited": False}
+
+
+@app.get("/api/favorites")
+def list_favorites(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    favs = db.query(Favorite).filter(Favorite.user_id == user.id).order_by(Favorite.created_at.desc()).all()
+    result = []
+    for f in favs:
+        doc = db.query(Document).filter(Document.id == f.document_id, Document.deleted == False).first()
+        if doc:
+            result.append({
+                "id": doc.id, "number": doc.number, "title": doc.title,
+                "doc_type": doc.doc_type, "status": doc.status, "priority": doc.priority,
+                "created_at": doc.created_at.isoformat() if doc.created_at else "",
+                "favorited_at": f.created_at.isoformat() if f.created_at else "",
+            })
+    return result
+
+
+@app.get("/api/documents/{doc_id}/is-favorite")
+def is_favorite(doc_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    fav = db.query(Favorite).filter(Favorite.user_id == user.id, Favorite.document_id == doc_id).first()
+    return {"favorited": fav is not None}
+
+
+# ============ DELEGATIONS ============
+
+@app.get("/api/delegations")
+def list_delegations(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    degs = db.query(Delegation).filter(
+        (Delegation.from_user_id == user.id) | (Delegation.to_user_id == user.id)
+    ).order_by(Delegation.created_at.desc()).all()
+    result = []
+    for d in degs:
+        from_u = db.query(User).filter(User.id == d.from_user_id).first()
+        to_u = db.query(User).filter(User.id == d.to_user_id).first()
+        result.append({
+            "id": d.id, "from_user_id": d.from_user_id, "to_user_id": d.to_user_id,
+            "from_user_name": from_u.name if from_u else "", "to_user_name": to_u.name if to_u else "",
+            "date_from": d.date_from, "date_to": d.date_to, "reason": d.reason,
+            "active": d.active, "created_at": d.created_at.isoformat() if d.created_at else "",
+        })
+    return result
+
+
+@app.post("/api/delegations")
+def create_delegation(data: dict, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    to_user_id = data.get("to_user_id")
+    date_from = data.get("date_from", "")
+    date_to = data.get("date_to", "")
+    reason = sanitize(data.get("reason", ""))
+    if not to_user_id or not date_from or not date_to:
+        raise HTTPException(400, "Укажите пользователя и даты")
+    to_user = db.query(User).filter(User.id == to_user_id).first()
+    if not to_user:
+        raise HTTPException(404, "Пользователь не найден")
+    if to_user_id == user.id:
+        raise HTTPException(400, "Нельзя делегировать самому себе")
+    deg = Delegation(
+        from_user_id=user.id, to_user_id=to_user_id,
+        date_from=date_from, date_to=date_to, reason=reason,
+    )
+    db.add(deg)
+    add_notification(db, to_user_id, "delegation", "Делегирование",
+                     f'{user.name} делегировал вам полномочия с {date_from} по {date_to}')
+    add_audit(db, user.id, user.name, "delegate", "delegation", 0, f"-> {to_user.name} ({date_from} — {date_to})")
+    db.commit()
+    db.refresh(deg)
+    return {"id": deg.id, "ok": True}
+
+
+@app.delete("/api/delegations/{deg_id}")
+def delete_delegation(deg_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    deg = db.query(Delegation).filter(Delegation.id == deg_id).first()
+    if not deg:
+        raise HTTPException(404, "Делегирование не найдено")
+    if deg.from_user_id != user.id and user.role != "admin":
+        raise HTTPException(403, "Нет прав")
+    db.delete(deg)
+    db.commit()
+    return {"ok": True}
+
+
+# ============ DIGITAL SIGNATURE ============
+
+@app.post("/api/documents/{doc_id}/sign")
+def sign_document(doc_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    import hashlib
+    doc = load_doc(db, doc_id)
+    content_str = f"{doc.title}|{doc.content}|{doc.id}|{user.id}|{doc.updated_at}"
+    doc_hash = hashlib.sha256(content_str.encode()).hexdigest()
+    sig_data = f"{doc_hash}|{user.id}|{user.name}|{datetime.now(timezone.utc).isoformat()}"
+    signature = hashlib.sha256(sig_data.encode()).hexdigest()
+    existing = db.query(DocumentSignature).filter(
+        DocumentSignature.document_id == doc_id, DocumentSignature.user_id == user.id
+    ).first()
+    if existing:
+        existing.hash = doc_hash
+        existing.signature = signature
+        existing.signed_at = datetime.now(timezone.utc)
+    else:
+        db.add(DocumentSignature(document_id=doc_id, user_id=user.id, hash=doc_hash, signature=signature))
+    add_history(db, doc, user.name, f"ЭП: {user.name} (SHA-256: {doc_hash[:16]}...)")
+    add_audit(db, user.id, user.name, "sign", "document", doc.id, f"hash={doc_hash[:16]}")
+    db.commit()
+    return {"ok": True, "hash": doc_hash, "signature": signature, "user": user.name}
+
+
+@app.get("/api/documents/{doc_id}/signatures")
+def get_signatures(doc_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    sigs = db.query(DocumentSignature).filter(DocumentSignature.document_id == doc_id).all()
+    result = []
+    for s in sigs:
+        u = db.query(User).filter(User.id == s.user_id).first()
+        result.append({
+            "id": s.id, "user_id": s.user_id, "user_name": u.name if u else "",
+            "hash": s.hash, "signature": s.signature,
+            "signed_at": s.signed_at.isoformat() if s.signed_at else "",
+        })
+    return result
+
+
+@app.get("/api/documents/{doc_id}/verify")
+def verify_document(doc_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    import hashlib
+    doc = load_doc(db, doc_id)
+    sigs = db.query(DocumentSignature).filter(DocumentSignature.document_id == doc_id).all()
+    if not sigs:
+        return {"verified": False, "message": "Нет подписей", "signatures": []}
+    results = []
+    for s in sigs:
+        u = db.query(User).filter(User.id == s.user_id).first()
+        content_str = f"{doc.title}|{doc.content}|{doc.id}|{s.user_id}|{doc.updated_at}"
+        current_hash = hashlib.sha256(content_str.encode()).hexdigest()
+        valid = current_hash == s.hash
+        results.append({
+            "user_name": u.name if u else "", "valid": valid,
+            "hash": s.hash, "signed_at": s.signed_at.isoformat() if s.signed_at else "",
+            "message": "Подпись верна" if valid else "Документ изменён после подписания",
+        })
+    all_valid = all(r["valid"] for r in results)
+    return {"verified": all_valid, "message": "Все подписи верны" if all_valid else "Есть недействительные подписи", "signatures": results}
+
+
+# ============ TEMPLATE FILL ============
+
+@app.post("/api/templates/{tmpl_id}/fill")
+def fill_template(tmpl_id: int, data: dict, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    tmpl = db.query(DocumentTemplate).filter(DocumentTemplate.id == tmpl_id).first()
+    if not tmpl:
+        raise HTTPException(404, "Шаблон не найден")
+    variables = data.get("variables", {})
+    title = tmpl.title_template or ""
+    description = tmpl.description_template or ""
+    content = tmpl.content_template or ""
+    for key, value in variables.items():
+        placeholder = "{{" + key + "}}"
+        title = title.replace(placeholder, str(value))
+        description = description.replace(placeholder, str(value))
+        content = content.replace(placeholder, str(value))
+    # Find unfilled placeholders
+    import re as _re
+    unfilled = list(set(_re.findall(r'\{\{(\w+)\}\}', title + description + content)))
+    return {
+        "title": title, "description": description, "content": content,
+        "doc_type": tmpl.doc_type, "priority": tmpl.priority,
+        "unfilled_variables": unfilled,
+    }
+
+
+@app.get("/api/templates/{tmpl_id}/variables")
+def get_template_variables(tmpl_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    tmpl = db.query(DocumentTemplate).filter(DocumentTemplate.id == tmpl_id).first()
+    if not tmpl:
+        raise HTTPException(404, "Шаблон не найден")
+    import re as _re
+    all_text = (tmpl.title_template or "") + (tmpl.description_template or "") + (tmpl.content_template or "")
+    variables = list(set(_re.findall(r'\{\{(\w+)\}\}', all_text)))
+    return {"variables": variables}
+
+
+# ============ DOCUMENT VIEWS (READ TRACKING) ============
+
+@app.post("/api/documents/{doc_id}/view")
+def record_view(doc_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    doc = load_doc(db, doc_id)
+    existing = db.query(DocumentView).filter(
+        DocumentView.document_id == doc_id, DocumentView.user_id == user.id
+    ).first()
+    if existing:
+        existing.viewed_at = datetime.now(timezone.utc)
+    else:
+        db.add(DocumentView(document_id=doc_id, user_id=user.id))
+    db.commit()
+    return {"ok": True}
+
+
+@app.get("/api/documents/{doc_id}/views")
+def get_views(doc_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    views = db.query(DocumentView).filter(DocumentView.document_id == doc_id).order_by(DocumentView.viewed_at.desc()).all()
+    result = []
+    for v in views:
+        u = db.query(User).filter(User.id == v.user_id).first()
+        result.append({
+            "user_id": v.user_id, "user_name": u.name if u else "",
+            "viewed_at": v.viewed_at.isoformat() if v.viewed_at else "",
+        })
+    return {"views": result, "count": len(result)}
+
+
+# ============ BULK OPERATIONS ============
+
+@app.post("/api/documents/bulk-action")
+def bulk_action(data: dict, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    doc_ids = data.get("doc_ids", [])
+    action = data.get("action", "")
+    if not doc_ids:
+        raise HTTPException(400, "Укажите документы")
+    if len(doc_ids) > 100:
+        raise HTTPException(400, "Максимум 100 документов")
+    if action not in ("delete", "archive", "restore", "add_tags", "remove_tags"):
+        raise HTTPException(400, "Неизвестное действие")
+    count = 0
+    for did in doc_ids:
+        doc = db.query(Document).filter(Document.id == did).first()
+        if not doc:
+            continue
+        if doc.author_id != user.id and user.role != "admin":
+            continue
+        if action == "delete":
+            doc.deleted = True
+            add_history(db, doc, user.name, "Удалён (пакетно)")
+        elif action == "archive":
+            doc.status = "archived"
+            add_history(db, doc, user.name, "В архив (пакетно)")
+        elif action == "restore":
+            doc.deleted = False
+            if doc.status == "archived":
+                doc.status = "draft"
+            add_history(db, doc, user.name, "Восстановлен (пакетно)")
+        elif action == "add_tags":
+            tag_ids = data.get("tag_ids", [])
+            for tid in tag_ids:
+                tag = db.query(Tag).filter(Tag.id == tid).first()
+                if tag and tag not in doc.tags:
+                    doc.tags.append(tag)
+        elif action == "remove_tags":
+            tag_ids = data.get("tag_ids", [])
+            for tid in tag_ids:
+                tag = db.query(Tag).filter(Tag.id == tid).first()
+                if tag and tag in doc.tags:
+                    doc.tags.remove(tag)
+        doc.updated_at = datetime.now(timezone.utc)
+        count += 1
+    add_audit(db, user.id, user.name, f"bulk_{action}", "document", 0, f"{count} документов")
+    db.commit()
+    return {"ok": True, "action": action, "affected": count}
+
+
+# ============ EXCEL EXPORT ============
+
+@app.get("/api/reports/export/xlsx")
+def export_reports_xlsx(
+    date_from: str = "2024-01-01", date_to: str = "2030-12-31",
+    db: Session = Depends(get_db), user: User = Depends(get_current_user),
+):
+    """Export reports as XLSX (Excel)."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    import tempfile
+
+    d_from = datetime.strptime(date_from, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+    d_to = datetime.strptime(date_to, "%Y-%m-%d").replace(hour=23, minute=59, second=59, tzinfo=timezone.utc)
+    docs = db.query(Document).filter(
+        Document.deleted == False, Document.created_at >= d_from, Document.created_at <= d_to,
+    ).order_by(Document.created_at.desc()).all()
+
+    wb = Workbook()
+    # Sheet 1: Documents list
+    ws = wb.active
+    ws.title = "Документы"
+    header_font = Font(bold=True, color="FFFFFF", size=11)
+    header_fill = PatternFill(start_color="2563EB", end_color="2563EB", fill_type="solid")
+    thin_border = Border(
+        left=Side(style="thin"), right=Side(style="thin"),
+        top=Side(style="thin"), bottom=Side(style="thin"),
+    )
+    headers = ["№", "Номер", "Название", "Тип", "Статус", "Приоритет", "Автор", "Дата создания"]
+    for col, h in enumerate(headers, 1):
+        cell = ws.cell(row=1, column=col, value=h)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = Alignment(horizontal="center")
+        cell.border = thin_border
+    for i, doc in enumerate(docs, 1):
+        author = db.query(User).filter(User.id == doc.author_id).first()
+        row = [
+            i, doc.number or "", doc.title,
+            DOC_TYPE_LABELS.get(doc.doc_type, doc.doc_type),
+            STATUS_LABELS.get(doc.status, doc.status),
+            doc.priority, author.name if author else "",
+            doc.created_at.strftime("%d.%m.%Y %H:%M") if doc.created_at else "",
+        ]
+        for col, val in enumerate(row, 1):
+            cell = ws.cell(row=i + 1, column=col, value=val)
+            cell.border = thin_border
+    ws.column_dimensions["C"].width = 40
+    ws.column_dimensions["D"].width = 20
+    ws.column_dimensions["G"].width = 25
+    ws.column_dimensions["H"].width = 18
+
+    # Sheet 2: Stats
+    ws2 = wb.create_sheet("Статистика")
+    ws2.cell(row=1, column=1, value="Статистика").font = Font(bold=True, size=14)
+    ws2.cell(row=3, column=1, value="Всего документов:").font = Font(bold=True)
+    ws2.cell(row=3, column=2, value=len(docs))
+    by_status = {}
+    for d in docs:
+        by_status[d.status] = by_status.get(d.status, 0) + 1
+    row_n = 5
+    ws2.cell(row=row_n, column=1, value="По статусам:").font = Font(bold=True)
+    row_n += 1
+    for st, cnt in by_status.items():
+        ws2.cell(row=row_n, column=1, value=STATUS_LABELS.get(st, st))
+        ws2.cell(row=row_n, column=2, value=cnt)
+        row_n += 1
+
+    # Sheet 3: KPI
+    ws3 = wb.create_sheet("KPI")
+    from sqlalchemy import func
+    kpi_headers = ["Сотрудник", "Документов", "Согласований", "Задач выполнено", "Всего задач"]
+    for col, h in enumerate(kpi_headers, 1):
+        cell = ws3.cell(row=1, column=col, value=h)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.border = thin_border
+    users_all = db.query(User).all()
+    for i, u in enumerate(users_all, 1):
+        dc = db.query(func.count(Document.id)).filter(Document.author_id == u.id, Document.deleted == False).scalar()
+        ac = db.query(func.count(Approval.id)).filter(Approval.user_id == u.id, Approval.status.in_(["approved", "rejected"])).scalar()
+        tc = db.query(func.count(Task.id)).filter(Task.assignee_id == u.id, Task.status == "completed").scalar()
+        tt = db.query(func.count(Task.id)).filter(Task.assignee_id == u.id).scalar()
+        row_data = [u.name, dc, ac, tc, tt]
+        for col, val in enumerate(row_data, 1):
+            cell = ws3.cell(row=i + 1, column=col, value=val)
+            cell.border = thin_border
+    ws3.column_dimensions["A"].width = 30
+
+    tmp = tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False)
+    wb.save(tmp.name)
+    return FileResponse(tmp.name, filename=f"report-{date_from}-{date_to}.xlsx",
+                        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
 
 app.mount("/static", StaticFiles(directory="static"), name="static")

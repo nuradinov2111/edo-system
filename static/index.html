@@ -287,6 +287,8 @@ tr:hover td{background:var(--g50)}
       <button class="nav-item buh-only hidden" data-page="journal" onclick="showPage('journal')"><span>&#128214;</span> Журнал регистрации</button>
       <button class="nav-item admin-only hidden" data-page="nomenclature" onclick="showPage('nomenclature')"><span>&#128193;</span> Номенклатура дел</button>
       <div class="nav-section">Личное</div>
+      <button class="nav-item" data-page="favorites" onclick="showPage('favorites')"><span>&#11088;</span> Избранное</button>
+      <button class="nav-item" data-page="delegations" onclick="showPage('delegations')"><span>&#128257;</span> Делегирование</button>
       <button class="nav-item" data-page="profile" onclick="showPage('profile')"><span>&#128100;</span> Профиль</button>
     </nav>
     <div class="sidebar-user">
@@ -394,7 +396,7 @@ function formatDate(s){if(!s)return'\u2014';var d=new Date(s);if(isNaN(d.getTime
 function formatDateTime(s){if(!s)return'\u2014';var d=new Date(s);if(isNaN(d.getTime()))return'\u2014';return d.toLocaleDateString('ru-RU',{day:'2-digit',month:'2-digit',year:'numeric'})+' '+d.toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'})}
 function timeAgo(s){if(!s)return'';var d=new Date(s);var diff=(Date.now()-d.getTime())/1000;if(diff<60)return'только что';if(diff<3600)return Math.floor(diff/60)+' мин. назад';if(diff<86400)return Math.floor(diff/3600)+' ч. назад';if(diff<2592000)return Math.floor(diff/86400)+' дн. назад';return formatDate(s)}
 function toast(msg,type){type=type||'info';var c=document.getElementById('toastContainer');var t=document.createElement('div');t.className='toast toast-'+type;t.textContent=msg;c.appendChild(t);setTimeout(function(){t.style.animation='slideOut .3s ease-in forwards';setTimeout(function(){t.remove()},300)},3000)}
-function toggleFav(id){var idx=favorites.indexOf(id);if(idx>=0)favorites.splice(idx,1);else favorites.push(id);localStorage.setItem('edo-fav',JSON.stringify(favorites))}
+async function toggleFav(id){var idx=favorites.indexOf(id);if(idx>=0){favorites.splice(idx,1);try{await api('/api/documents/'+id+'/favorite',{method:'DELETE'})}catch(e){}}else{favorites.push(id);try{await api('/api/documents/'+id+'/favorite',{method:'POST'})}catch(e){}}localStorage.setItem('edo-fav',JSON.stringify(favorites))}
 function isFav(id){return favorites.indexOf(id)>=0}
 function statusBadge(st){return'<span class="badge badge-'+esc(st)+'">'+esc(STATUSES[st]||st)+'</span>'}
 function priorityBadge(p){return p?'<span class="badge badge-'+esc(p)+'">'+esc(PRIORITIES[p]||p)+'</span>':''}
@@ -425,7 +427,7 @@ async function loadTasks(){try{allTasks=await api('/api/tasks');var myPending=al
 async function loadTrash(){try{trashDocs=await api('/api/documents/trash')}catch(e){trashDocs=[]}}
 function updateApprovalBadge(){var count=documents.filter(function(d){return canUserApprove(d)}).length;var badge=document.getElementById('approvalBadge');if(count>0){badge.textContent=count;badge.classList.remove('hidden')}else{badge.classList.add('hidden')}}
 
-function showPage(name,param){var adminPages=['kanban','calendar','analytics','archive','trash','users','settings','audit','nomenclature','reports'];if(currentUser&&currentUser.role!=='admin'&&adminPages.indexOf(name)>=0){name='documents'}var buhPages=['incoming','outgoing','journal'];if(currentUser&&buhPages.indexOf(name)>=0&&currentUser.role!=='admin'&&currentUser.department!=='Бухгалтерия'){name='documents'}currentPage=name;currentPageParam=param;selectedIds.clear();sortCol='';sortDir=1;if(name!=='detail')aiSetDoc(null);document.querySelectorAll('.nav-item').forEach(function(n){n.classList.toggle('active',n.dataset.page===name)});if(window.innerWidth<768)document.getElementById('sidebar').classList.remove('open');var pc=document.getElementById('pageContent');switch(name){case'dashboard':renderDashboard(pc);break;case'documents':renderDocuments(pc);break;case'create':renderCreateEdit(pc,param);break;case'detail':renderDetail(pc,param);break;case'approvals':renderApprovals(pc);break;case'kanban':renderKanban(pc);break;case'calendar':renderCalendar(pc);break;case'analytics':renderAnalytics(pc);break;case'archive':renderArchive(pc);break;case'notifications':renderNotifications(pc);break;case'users':renderUsers(pc);break;case'settings':renderSettings(pc);break;case'templates':renderTemplates(pc);break;case'tasks':renderTasks(pc);break;case'trash':renderTrash(pc);break;case'profile':renderProfile(pc);break;case'incoming':renderIncoming(pc);break;case'outgoing':renderOutgoing(pc);break;case'audit':renderAuditLog(pc);break;case'journal':renderJournal(pc);break;case'nomenclature':renderNomenclature(pc);break;case'reports':renderReports(pc);break;default:pc.innerHTML='<p>\u0421\u0442\u0440\u0430\u043d\u0438\u0446\u0430 \u043d\u0435 \u043d\u0430\u0439\u0434\u0435\u043d\u0430</p>'}}
+function showPage(name,param){var adminPages=['kanban','calendar','analytics','archive','trash','users','settings','audit','nomenclature','reports'];if(currentUser&&currentUser.role!=='admin'&&adminPages.indexOf(name)>=0){name='documents'}var buhPages=['incoming','outgoing','journal'];if(currentUser&&buhPages.indexOf(name)>=0&&currentUser.role!=='admin'&&currentUser.department!=='Бухгалтерия'){name='documents'}currentPage=name;currentPageParam=param;selectedIds.clear();sortCol='';sortDir=1;if(name!=='detail')aiSetDoc(null);document.querySelectorAll('.nav-item').forEach(function(n){n.classList.toggle('active',n.dataset.page===name)});if(window.innerWidth<768)document.getElementById('sidebar').classList.remove('open');var pc=document.getElementById('pageContent');switch(name){case'dashboard':renderDashboard(pc);break;case'documents':renderDocuments(pc);break;case'create':renderCreateEdit(pc,param);break;case'detail':renderDetail(pc,param);break;case'approvals':renderApprovals(pc);break;case'kanban':renderKanban(pc);break;case'calendar':renderCalendar(pc);break;case'analytics':renderAnalytics(pc);break;case'archive':renderArchive(pc);break;case'notifications':renderNotifications(pc);break;case'users':renderUsers(pc);break;case'settings':renderSettings(pc);break;case'templates':renderTemplates(pc);break;case'tasks':renderTasks(pc);break;case'trash':renderTrash(pc);break;case'profile':renderProfile(pc);break;case'incoming':renderIncoming(pc);break;case'outgoing':renderOutgoing(pc);break;case'audit':renderAuditLog(pc);break;case'journal':renderJournal(pc);break;case'nomenclature':renderNomenclature(pc);break;case'reports':renderReports(pc);break;case'favorites':renderFavorites(pc);break;case'delegations':renderDelegations(pc);break;default:pc.innerHTML='<p>\u0421\u0442\u0440\u0430\u043d\u0438\u0446\u0430 \u043d\u0435 \u043d\u0430\u0439\u0434\u0435\u043d\u0430</p>'}}
 
 function toggleSidebar(){document.getElementById('sidebar').classList.toggle('open')}
 function toggleTheme(){var t=document.documentElement.getAttribute('data-theme')==='dark'?'light':'dark';document.documentElement.setAttribute('data-theme',t);localStorage.setItem('edo-theme',t);var btn=document.querySelector('.theme-toggle');if(btn)btn.innerHTML=t==='dark'?'&#9728;':'&#127763;';btn.title=t==='dark'?'Светлая тема':'Тёмная тема'}
@@ -520,7 +522,7 @@ function renderDocTable(){
 function doSort(col){if(sortCol===col)sortDir*=-1;else{sortCol=col;sortDir=1}renderDocTable()}
 function toggleSelect(id,checked){if(checked)selectedIds.add(id);else selectedIds.delete(id);renderBulkBar()}
 function toggleAllSelect(checked){if(checked)documents.forEach(function(d){selectedIds.add(d.id)});else selectedIds.clear();renderDocTable()}
-function renderBulkBar(){var w=document.getElementById('bulkBarWrap');if(!w)return;if(selectedIds.size===0){w.innerHTML='';return}w.innerHTML='<div class="bulk-bar"><span>Выбрано: '+selectedIds.size+'</span><button onclick="bulkApprove()">&#10003; Согласовать</button><button onclick="bulkReject()">&#10007; Отклонить</button><button onclick="bulkAction(\'delete\')" style="background:#ef4444">&#128465; Удалить</button><button onclick="bulkAction(\'archive\')" style="background:#6b7280">&#128451; В архив</button><button onclick="selectedIds.clear();renderDocTable()">Снять выбор</button></div>'}
+function renderBulkBar(){var w=document.getElementById('bulkBarWrap');if(!w)return;if(selectedIds.size===0){w.innerHTML='';return}w.innerHTML='<div class="bulk-bar"><span>Выбрано: '+selectedIds.size+'</span><button onclick="bulkApprove()">&#10003; Согласовать</button><button onclick="bulkReject()">&#10007; Отклонить</button><button onclick="bulkAddTags()">&#127991; Метки</button><button onclick="bulkActionNew(\'archive\')">&#128451; В архив</button><button onclick="bulkActionNew(\'delete\')" style="background:#ef4444">&#128465; Удалить</button><button onclick="selectedIds.clear();renderDocTable()">Снять выбор</button></div>'}
 async function bulkApprove(){for(var id of selectedIds){try{await api('/api/documents/'+id+'/approve',{method:'POST',body:{comment:''}})}catch(e){}}selectedIds.clear();await loadDocs();await loadNotifs();toast('Документы согласованы','success');showPage('documents')}
 async function bulkReject(){var comment=prompt('Комментарий к отклонению:');if(comment===null)return;for(var id of selectedIds){try{await api('/api/documents/'+id+'/reject',{method:'POST',body:{comment:comment}})}catch(e){}}selectedIds.clear();await loadDocs();await loadNotifs();toast('Документы отклонены','warning');showPage('documents')}
 async function bulkAction(action){var labels={delete:'Удалить',archive:'Архивировать',restore:'Восстановить'};if(!confirm(labels[action]+' выбранные документы ('+selectedIds.size+')?'))return;try{var r=await api('/api/documents/bulk',{method:'POST',body:{doc_ids:Array.from(selectedIds),action:action}});toast('Обработано: '+r.processed+' документов','success');selectedIds.clear();await loadDocs();showPage(currentPage)}catch(e){toast(e.message,'error')}}
@@ -598,6 +600,7 @@ async function saveDoc(e,docId){e.preventDefault();var tagIds=[];document.queryS
 
 function renderDetail(el,docId){
   aiSetDoc(docId);
+  recordDocView(docId);
   setTimeout(function(){loadQRCode(docId)},100);
   var doc=documents.find(function(d){return d.id===docId});
   if(!doc){el.innerHTML='<p>Документ не найден. <a href="#" onclick="event.preventDefault();showPage(\'documents\')">Назад</a></p>';return}
@@ -628,6 +631,9 @@ function renderDetail(el,docId){
   actH+='<button class="btn btn-outline btn-block" onclick="exportDoc('+doc.id+',\'docx\')">&#128462; \u0421\u043a\u0430\u0447\u0430\u0442\u044c Word</button>';
   actH+='<button class="btn btn-outline btn-block" onclick="saveDocAsTemplate('+doc.id+')">&#128203; \u0421\u043e\u0445\u0440\u0430\u043d\u0438\u0442\u044c \u043a\u0430\u043a \u0448\u0430\u0431\u043b\u043e\u043d</button>';
   actH+='<button class="btn btn-outline btn-block" onclick="printDoc('+doc.id+')">&#128424; \u041f\u0435\u0447\u0430\u0442\u044c</button>';
+  actH+='<button class="btn btn-success btn-block" onclick="signDocument('+doc.id+')">&#128272; ЭП (подписать)</button>';
+  actH+='<button class="btn btn-outline btn-block" onclick="verifyDocument('+doc.id+')">&#128270; Проверить подписи</button>';
+  actH+='<button class="btn btn-outline btn-block" onclick="showDocViews('+doc.id+')">&#128065; Кто просмотрел</button>';
   if(currentUser&&currentUser.role==='admin')actH+='<button class="btn btn-outline btn-block" onclick="assignToCase('+doc.id+')">&#128193; \u041d\u043e\u043c\u0435\u043d\u043a\u043b\u0430\u0442\u0443\u0440\u0430</button>';
   el.innerHTML='<div style="margin-bottom:1rem"><a href="#" onclick="event.preventDefault();showPage(\'documents\')" style="font-size:.8125rem">&larr; Назад к документам</a></div><div style="display:flex;align-items:center;gap:.75rem;margin-bottom:1.25rem;flex-wrap:wrap"><h2 style="font-size:1.5rem;font-weight:700;margin:0">'+esc(doc.title)+'</h2><span style="color:var(--text-secondary);font-size:.875rem">'+esc(doc.number||'#'+doc.id)+'</span>'+statusBadge(doc.status)+' '+tagsH+'</div><div class="doc-detail"><div class="doc-main"><div class="card" style="margin-bottom:1rem"><div class="card-header">Информация</div><div class="card-body"><div class="info-grid"><div class="info-label">Тип</div><div class="info-value">'+esc(DOC_TYPES[doc.doc_type]||doc.doc_type)+'</div><div class="info-label">Автор</div><div class="info-value">'+esc(doc.author_name)+'</div><div class="info-label">Номер</div><div class="info-value">'+esc(doc.number||'\u2014')+'</div><div class="info-label">Приоритет</div><div class="info-value">'+(priorityBadge(doc.priority)||'\u2014')+'</div><div class="info-label">Создан</div><div class="info-value">'+formatDateTime(doc.created_at)+'</div><div class="info-label">Обновл\u0451н</div><div class="info-value">'+formatDateTime(doc.updated_at)+'</div><div class="info-label">Дедлайн</div><div class="info-value">'+(doc.deadline?formatDate(doc.deadline):'\u2014')+'</div><div class="info-label">Описание</div><div class="info-value">'+(esc(doc.description)||'\u2014')+'</div></div>'+extraH+attH+'</div></div><div class="card" style="margin-bottom:1rem"><div class="card-header">Содержание</div><div class="card-body"><div class="content-block">'+esc(doc.content)+'</div></div></div>'+relH+'<div class="card"><div class="card-header">Комментарии ('+(doc.comments||[]).length+')</div><div class="card-body">'+comH+'<form onsubmit="return addComment(event,'+doc.id+')" style="margin-top:1rem;display:flex;gap:.5rem"><input type="text" id="commentText" placeholder="Добавить комментарий..." style="flex:1;padding:.5rem .75rem;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg);color:var(--text)"><button class="btn btn-primary" type="submit">Отправить</button></form></div></div></div><div class="doc-sidebar-panel"><div class="card"><div class="card-header">Действия</div><div class="card-body" style="display:flex;flex-direction:column;gap:.375rem">'+actH+'</div></div><div class="card"><div class="card-header">Согласование</div><div class="card-body">'+apH+'</div></div>'+resH+'<div class="card"><div class="card-header">QR-код</div><div class="card-body" style="text-align:center"><div id="qrCodeContainer" style="margin:0 auto"><div style="width:120px;height:120px;background:var(--g200);border-radius:var(--radius);margin:0 auto;display:flex;align-items:center;justify-content:center;font-size:.75rem;color:var(--text-secondary)">Загрузка...</div></div></div></div>'+hisH+verH+'</div></div>'
 }
@@ -836,7 +842,7 @@ function renderTemplates(el){
   var ch=TEMPLATES.map(function(t,i){return'<div class="template-card" onclick="useTemplate('+i+')"><div class="tc-icon">'+t.icon+'</div><div class="tc-name">'+esc(t.name)+'</div><div class="tc-desc">'+esc(t.desc)+'</div></div>'}).join('');
   var srv='';
   if(serverTemplates.length>0){
-    srv='<h3 style="margin:1.5rem 0 .5rem;color:var(--text-secondary)">Сохранённые шаблоны</h3><div class="templates-grid">'+serverTemplates.map(function(t){return'<div class="template-card" style="position:relative" onclick="applyServerTemplate('+t.id+')"><div class="tc-icon">&#128196;</div><div class="tc-name">'+esc(t.name)+'</div><div class="tc-desc">'+esc(DOC_TYPES[t.doc_type]||t.doc_type)+'</div>'+(t.author_id===currentUser.id||currentUser.role==='admin'?'<button onclick="event.stopPropagation();deleteServerTemplate('+t.id+')" style="position:absolute;top:4px;right:4px;background:none;border:none;cursor:pointer;font-size:14px" title="Удалить">&#10005;</button>':'')+'</div>'}).join('')+'</div>'
+    srv='<h3 style="margin:1.5rem 0 .5rem;color:var(--text-secondary)">Сохранённые шаблоны</h3><div class="templates-grid">'+serverTemplates.map(function(t){return'<div class="template-card" style="position:relative" onclick="applyServerTemplate('+t.id+')"><div class="tc-icon">&#128196;</div><div class="tc-name">'+esc(t.name)+'</div><div class="tc-desc">'+esc(DOC_TYPES[t.doc_type]||t.doc_type)+'</div><button onclick="event.stopPropagation();fillTemplate('+t.id+')" style="position:absolute;bottom:4px;left:4px;background:none;border:none;cursor:pointer;font-size:12px;color:var(--primary)" title="Заполнить переменные">&#123;&#123;x&#125;&#125;</button>'+(t.author_id===currentUser.id||currentUser.role==='admin'?'<button onclick="event.stopPropagation();deleteServerTemplate('+t.id+')" style="position:absolute;top:4px;right:4px;background:none;border:none;cursor:pointer;font-size:14px" title="Удалить">&#10005;</button>':'')+'</div>'}).join('')+'</div>'
   }
   el.innerHTML='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem"><h2 class="page-title" style="margin:0">Шаблоны документов</h2><button class="btn btn-primary" onclick="showSaveTemplateDialog()">&#43; Сохранить как шаблон</button></div><div class="templates-grid">'+ch+'</div>'+srv
 }
@@ -848,7 +854,7 @@ async function saveTemplate(){var name=document.getElementById('tmplName').value
 
 // ============ INCOMING / OUTGOING (Бухгалтерия) ============
 // ============ AUDIT LOG ============
-var auditActions={login:'Вход',register:'Регистрация',create:'Создание',update:'Редактирование',delete:'Удаление',approve:'Согласование',reject:'Отклонение',bulk_delete:'Масс. удаление',bulk_archive:'Масс. архивация',bulk_restore:'Масс. восстановление',apply_template:'Из шаблона'};
+var auditActions={login:'Вход',register:'Регистрация',create:'Создание',update:'Редактирование',delete:'Удаление',approve:'Согласование',reject:'Отклонение',bulk_delete:'Масс. удаление',bulk_archive:'Масс. архивация',bulk_restore:'Масс. восстановление',bulk_add_tags:'Масс. метки',bulk_remove_tags:'Масс. удал. меток',apply_template:'Из шаблона',sign:'Подпись',delegate:'Делегирование'};
 async function renderAuditLog(el){
   var actionFilter='';var userFilter=0;
   el.innerHTML='<h2 class="page-title">Журнал действий</h2><div class="filter-bar" style="margin-bottom:1rem"><select id="auditAction" onchange="filterAudit()" class="form-control" style="width:auto;display:inline-block"><option value="">Все действия</option>'+Object.keys(auditActions).map(function(k){return'<option value="'+k+'">'+auditActions[k]+'</option>'}).join('')+'</select> <select id="auditUser" onchange="filterAudit()" class="form-control" style="width:auto;display:inline-block"><option value="0">Все пользователи</option>'+(allUsers||[]).map(function(u){return'<option value="'+u.id+'">'+esc(u.name)+'</option>'}).join('')+'</select></div><div id="auditTable">Загрузка...</div>';
@@ -1318,7 +1324,7 @@ async function renderReports(el){
   var monthAgo=new Date(Date.now()-30*86400000).toISOString().slice(0,10);
   var to=Object.keys(DOC_TYPES).map(function(k){return'<option value="'+k+'">'+esc(DOC_TYPES[k])+'</option>'}).join('');
   var so=Object.keys(STATUSES).map(function(k){return'<option value="'+k+'">'+esc(STATUSES[k])+'</option>'}).join('');
-  el.innerHTML='<h2 class="page-title">Отчёты за период</h2><div class="card" style="margin-bottom:1rem"><div class="card-body"><div class="filter-bar"><label style="font-size:.8rem;font-weight:600">С:</label><input type="date" id="repFrom" value="'+monthAgo+'"><label style="font-size:.8rem;font-weight:600">По:</label><input type="date" id="repTo" value="'+today+'"><select id="repType"><option value="">Все типы</option>'+to+'</select><select id="repStatus"><option value="">Все статусы</option>'+so+'</select><button class="btn btn-primary" onclick="loadReport()">Сформировать</button><button class="btn btn-outline" onclick="exportReportCSV()">&#128229; CSV</button></div></div></div><div id="reportResult"></div>';
+  el.innerHTML='<h2 class="page-title">Отчёты за период</h2><div class="card" style="margin-bottom:1rem"><div class="card-body"><div class="filter-bar"><label style="font-size:.8rem;font-weight:600">С:</label><input type="date" id="repFrom" value="'+monthAgo+'"><label style="font-size:.8rem;font-weight:600">По:</label><input type="date" id="repTo" value="'+today+'"><select id="repType"><option value="">Все типы</option>'+to+'</select><select id="repStatus"><option value="">Все статусы</option>'+so+'</select><button class="btn btn-primary" onclick="loadReport()">Сформировать</button><button class="btn btn-outline" onclick="exportReportCSV()">&#128229; CSV</button><button class="btn btn-outline" onclick="exportReportXLSX()">&#128202; Excel</button></div></div></div><div id="reportResult"></div>';
   loadReport();
 }
 async function loadReport(){
@@ -1419,6 +1425,113 @@ async function deleteWebhook(id){try{await api('/api/webhooks/'+id,{method:'DELE
 
 // ============ NOTIFICATION POLLING ============
 setInterval(async function(){if(!currentUser)return;try{var notifs=await api('/api/notifications');notifications=notifs;var unread=notifs.filter(function(n){return!n.read}).length;var nb=document.getElementById('notifBadge');if(nb){nb.textContent=unread;nb.classList.toggle('hidden',unread===0)}}catch(e){}},30000);
+
+// ============ FAVORITES PAGE ============
+async function renderFavorites(el){
+  try{var favs=await api('/api/favorites');
+  var rows=favs.map(function(d){return'<tr style="cursor:pointer"><td onclick="showPage(\'detail\','+d.id+')">'+esc(d.number||'#'+d.id)+'</td><td onclick="showPage(\'detail\','+d.id+')" style="font-weight:600">'+esc(d.title)+'</td><td>'+esc(DOC_TYPES[d.doc_type]||d.doc_type)+'</td><td>'+statusBadge(d.status)+'</td><td>'+formatDate(d.created_at)+'</td><td><button class="btn btn-outline btn-sm" onclick="removeFav('+d.id+')">&#10005;</button></td></tr>'}).join('');
+  if(!rows)rows='<tr><td colspan="6" style="text-align:center;padding:2rem;color:var(--text-secondary)">Нет избранных документов. Нажмите &#9733; на документе чтобы добавить.</td></tr>';
+  el.innerHTML='<h2 class="page-title">&#11088; Избранное ('+favs.length+')</h2><div class="card"><div class="card-body" style="padding:0"><div class="table-wrap"><table><thead><tr><th>№</th><th>Название</th><th>Тип</th><th>Статус</th><th>Дата</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div></div></div>';
+  }catch(e){toast(e.message,'error')}
+}
+async function removeFav(id){try{await api('/api/documents/'+id+'/favorite',{method:'DELETE'});var idx=favorites.indexOf(id);if(idx>=0)favorites.splice(idx,1);localStorage.setItem('edo-fav',JSON.stringify(favorites));toast('Удалено из избранного','info');renderFavorites(document.getElementById('pageContent'))}catch(e){toast(e.message,'error')}}
+
+// ============ DELEGATIONS PAGE ============
+async function renderDelegations(el){
+  try{var degs=await api('/api/delegations');
+  var rows=degs.map(function(d){
+    var today=new Date().toISOString().slice(0,10);
+    var isActive=d.date_from<=today&&d.date_to>=today;
+    return'<tr><td>'+esc(d.from_user_name)+'</td><td>'+esc(d.to_user_name)+'</td><td>'+formatDate(d.date_from)+'</td><td>'+formatDate(d.date_to)+'</td><td>'+esc(d.reason||'\u2014')+'</td><td>'+(isActive?'<span class="badge badge-approved">Активно</span>':'<span class="badge badge-draft">Неактивно</span>')+'</td><td>'+(d.from_user_id===currentUser.id||currentUser.role==='admin'?'<button class="btn btn-danger btn-sm" onclick="deleteDelegation('+d.id+')">&#128465;</button>':'')+'</td></tr>'}).join('');
+  if(!rows)rows='<tr><td colspan="7" style="text-align:center;padding:2rem;color:var(--text-secondary)">Нет делегирований</td></tr>';
+  var userOpts=allUsers.filter(function(u){return u.id!==currentUser.id}).map(function(u){return'<option value="'+u.id+'">'+esc(u.name)+'</option>'}).join('');
+  el.innerHTML='<h2 class="page-title">&#128257; Делегирование полномочий</h2><div class="card" style="margin-bottom:1rem"><div class="card-header">Новое делегирование</div><div class="card-body"><div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr auto;gap:.75rem;align-items:end"><div class="form-group" style="margin:0"><label>Кому</label><select id="degTo">'+userOpts+'</select></div><div class="form-group" style="margin:0"><label>С</label><input type="date" id="degFrom"></div><div class="form-group" style="margin:0"><label>По</label><input type="date" id="degToDate"></div><div class="form-group" style="margin:0"><label>Причина</label><input type="text" id="degReason" placeholder="Отпуск, командировка..."></div><button class="btn btn-primary" onclick="createDelegation()">Создать</button></div></div></div><div class="card"><div class="card-header">История делегирований</div><div class="card-body" style="padding:0"><div class="table-wrap"><table><thead><tr><th>От кого</th><th>Кому</th><th>С</th><th>По</th><th>Причина</th><th>Статус</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div></div></div>';
+  }catch(e){toast(e.message,'error')}
+}
+async function createDelegation(){
+  var to=document.getElementById('degTo').value;
+  var from=document.getElementById('degFrom').value;
+  var toD=document.getElementById('degToDate').value;
+  var reason=document.getElementById('degReason').value;
+  if(!to||!from||!toD){toast('Заполните все поля','warning');return}
+  try{await api('/api/delegations',{method:'POST',body:{to_user_id:parseInt(to),date_from:from,date_to:toD,reason:reason}});toast('Делегирование создано','success');renderDelegations(document.getElementById('pageContent'))}catch(e){toast(e.message,'error')}
+}
+async function deleteDelegation(id){if(!confirm('Удалить делегирование?'))return;try{await api('/api/delegations/'+id,{method:'DELETE'});toast('Делегирование удалено','info');renderDelegations(document.getElementById('pageContent'))}catch(e){toast(e.message,'error')}}
+
+// ============ DIGITAL SIGNATURE ============
+async function signDocument(docId){
+  if(!confirm('Подписать документ электронной подписью (SHA-256)?'))return;
+  try{var res=await api('/api/documents/'+docId+'/sign',{method:'POST'});toast('Документ подписан. Хеш: '+res.hash.substring(0,16)+'...','success');await loadDocs();showPage('detail',docId)}catch(e){toast(e.message,'error')}
+}
+async function verifyDocument(docId){
+  try{var res=await api('/api/documents/'+docId+'/verify');
+  var html='<div class="modal-overlay" onclick="if(event.target===this)this.remove()"><div class="modal-card" style="max-width:600px"><div class="modal-header"><h3>Проверка подписей</h3><button class="modal-close" onclick="this.closest(\'.modal-overlay\').remove()">&times;</button></div><div class="modal-body">';
+  html+='<div style="text-align:center;margin-bottom:1rem;font-size:1.5rem">'+(res.verified?'&#9989;':'&#10060;')+'</div>';
+  html+='<div style="text-align:center;margin-bottom:1rem;font-weight:600;color:'+(res.verified?'var(--success)':'var(--danger)')+'">'+esc(res.message)+'</div>';
+  if(res.signatures&&res.signatures.length>0){
+    html+='<div style="margin-top:1rem">';
+    res.signatures.forEach(function(s){html+='<div style="padding:.5rem;border:1px solid var(--border);border-radius:var(--radius);margin-bottom:.5rem;display:flex;justify-content:space-between;align-items:center"><div><strong>'+esc(s.user_name)+'</strong><br><span style="font-size:.75rem;color:var(--text-secondary)">'+formatDateTime(s.signed_at)+'</span></div><div>'+(s.valid?'<span style="color:var(--success)">&#9989; Верна</span>':'<span style="color:var(--danger)">&#10060; '+esc(s.message)+'</span>')+'</div></div>'});
+    html+='</div>';
+  }
+  html+='</div></div></div>';
+  document.getElementById('pageContent').insertAdjacentHTML('beforeend',html);
+  }catch(e){toast(e.message,'error')}
+}
+
+// ============ VIEW TRACKING ============
+async function recordDocView(docId){try{await api('/api/documents/'+docId+'/view',{method:'POST'})}catch(e){}}
+async function showDocViews(docId){
+  try{var res=await api('/api/documents/'+docId+'/views');
+  var html='<div class="modal-overlay" onclick="if(event.target===this)this.remove()"><div class="modal-card" style="max-width:500px"><div class="modal-header"><h3>Просмотры ('+res.count+')</h3><button class="modal-close" onclick="this.closest(\'.modal-overlay\').remove()">&times;</button></div><div class="modal-body">';
+  if(res.views.length===0)html+='<p style="color:var(--text-secondary)">Пока никто не просматривал</p>';
+  else res.views.forEach(function(v){html+='<div style="display:flex;justify-content:space-between;padding:.375rem 0;border-bottom:1px solid var(--border);font-size:.8125rem"><span>'+esc(v.user_name)+'</span><span style="color:var(--text-secondary)">'+formatDateTime(v.viewed_at)+'</span></div>'});
+  html+='</div></div></div>';
+  document.getElementById('pageContent').insertAdjacentHTML('beforeend',html);
+  }catch(e){toast(e.message,'error')}
+}
+
+// ============ TEMPLATE FILL ============
+async function fillTemplate(tmplId){
+  try{var vars=await api('/api/templates/'+tmplId+'/variables');
+  if(!vars.variables||vars.variables.length===0){toast('В шаблоне нет переменных','info');return showPage('create')}
+  var inputs=vars.variables.map(function(v){return'<div class="form-group"><label>'+esc(v)+'</label><input type="text" id="tplVar_'+v+'" placeholder="Значение для {{'+v+'}}"></div>'}).join('');
+  var html='<div class="modal-overlay" onclick="if(event.target===this)this.remove()"><div class="modal-card" style="max-width:500px"><div class="modal-header"><h3>Заполнить шаблон</h3><button class="modal-close" onclick="this.closest(\'.modal-overlay\').remove()">&times;</button></div><div class="modal-body">'+inputs+'</div><div class="modal-footer"><button class="btn btn-outline" onclick="this.closest(\'.modal-overlay\').remove()">Отмена</button><button class="btn btn-primary" onclick="submitTemplateFill('+tmplId+')">Создать документ</button></div></div></div>';
+  document.getElementById('pageContent').insertAdjacentHTML('beforeend',html);
+  }catch(e){toast(e.message,'error')}
+}
+async function submitTemplateFill(tmplId){
+  try{var vars=await api('/api/templates/'+tmplId+'/variables');
+  var variables={};
+  vars.variables.forEach(function(v){var inp=document.getElementById('tplVar_'+v);if(inp)variables[v]=inp.value});
+  var res=await api('/api/templates/'+tmplId+'/fill',{method:'POST',body:{variables:variables}});
+  document.querySelector('.modal-overlay').remove();
+  var doc=await api('/api/documents',{method:'POST',body:{title:res.title,description:res.description,content:res.content,doc_type:res.doc_type,priority:res.priority,status:'draft'}});
+  toast('Документ создан из шаблона','success');await loadDocs();showPage('detail',doc.id);
+  }catch(e){toast(e.message,'error')}
+}
+
+// ============ BULK OPERATIONS (ENHANCED) ============
+async function bulkActionNew(action,tagIds){
+  var ids=Array.from(selectedIds);
+  if(ids.length===0){toast('Выберите документы','warning');return}
+  var body={doc_ids:ids,action:action};
+  if(tagIds)body.tag_ids=tagIds;
+  try{var res=await api('/api/documents/bulk-action',{method:'POST',body:body});toast('Обработано: '+res.affected+' документов','success');selectedIds.clear();await loadDocs();showPage(currentPage)}catch(e){toast(e.message,'error')}
+}
+function bulkAddTags(){
+  var tgs=allTags.map(function(t,i){return(i+1)+'. '+t.name}).join('\n');
+  var ch=prompt('Выберите метку (номер):\n'+tgs);if(!ch)return;
+  var idx=parseInt(ch)-1;if(isNaN(idx)||idx<0||idx>=allTags.length){toast('Неверный выбор','error');return}
+  bulkActionNew('add_tags',[allTags[idx].id]);
+}
+
+// ============ XLSX EXPORT ============
+function exportReportXLSX(){
+  var f=document.getElementById('repFrom').value,t=document.getElementById('repTo').value;
+  var token=localStorage.getItem('edo-token');
+  var url=API_BASE+'/api/reports/export/xlsx?date_from='+f+'&date_to='+t;
+  fetch(url,{headers:{'Authorization':'Bearer '+token}}).then(function(r){if(!r.ok)throw new Error('Ошибка');return r.blob()}).then(function(blob){var a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='report.xlsx';document.body.appendChild(a);a.click();document.body.removeChild(a);toast('XLSX скачан','success')}).catch(function(e){toast(e.message,'error')});
+}
 
 // ============ SERVICE WORKER (PWA) ============
 if('serviceWorker' in navigator){
