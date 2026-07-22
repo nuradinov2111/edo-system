@@ -613,6 +613,7 @@ function renderDetail(el,docId){
   actH+='<button class="btn btn-outline btn-block" onclick="exportDoc('+doc.id+',\'pdf\')">&#128196; \u0421\u043a\u0430\u0447\u0430\u0442\u044c PDF</button>';
   actH+='<button class="btn btn-outline btn-block" onclick="exportDoc('+doc.id+',\'docx\')">&#128462; \u0421\u043a\u0430\u0447\u0430\u0442\u044c Word</button>';
   actH+='<button class="btn btn-outline btn-block" onclick="saveDocAsTemplate('+doc.id+')">&#128203; \u0421\u043e\u0445\u0440\u0430\u043d\u0438\u0442\u044c \u043a\u0430\u043a \u0448\u0430\u0431\u043b\u043e\u043d</button>';
+  actH+='<button class="btn btn-outline btn-block" onclick="printDoc('+doc.id+')">&#128424; \u041f\u0435\u0447\u0430\u0442\u044c</button>';
   el.innerHTML='<div style="margin-bottom:1rem"><a href="#" onclick="event.preventDefault();showPage(\'documents\')" style="font-size:.8125rem">&larr; Назад к документам</a></div><div style="display:flex;align-items:center;gap:.75rem;margin-bottom:1.25rem;flex-wrap:wrap"><h2 style="font-size:1.5rem;font-weight:700;margin:0">'+esc(doc.title)+'</h2><span style="color:var(--text-secondary);font-size:.875rem">'+esc(doc.number||'#'+doc.id)+'</span>'+statusBadge(doc.status)+' '+tagsH+'</div><div class="doc-detail"><div class="doc-main"><div class="card" style="margin-bottom:1rem"><div class="card-header">Информация</div><div class="card-body"><div class="info-grid"><div class="info-label">Тип</div><div class="info-value">'+esc(DOC_TYPES[doc.doc_type]||doc.doc_type)+'</div><div class="info-label">Автор</div><div class="info-value">'+esc(doc.author_name)+'</div><div class="info-label">Номер</div><div class="info-value">'+esc(doc.number||'\u2014')+'</div><div class="info-label">Приоритет</div><div class="info-value">'+(priorityBadge(doc.priority)||'\u2014')+'</div><div class="info-label">Создан</div><div class="info-value">'+formatDateTime(doc.created_at)+'</div><div class="info-label">Обновл\u0451н</div><div class="info-value">'+formatDateTime(doc.updated_at)+'</div><div class="info-label">Дедлайн</div><div class="info-value">'+(doc.deadline?formatDate(doc.deadline):'\u2014')+'</div><div class="info-label">Описание</div><div class="info-value">'+(esc(doc.description)||'\u2014')+'</div></div>'+extraH+attH+'</div></div><div class="card" style="margin-bottom:1rem"><div class="card-header">Содержание</div><div class="card-body"><div class="content-block">'+esc(doc.content)+'</div></div></div>'+relH+'<div class="card"><div class="card-header">Комментарии ('+(doc.comments||[]).length+')</div><div class="card-body">'+comH+'<form onsubmit="return addComment(event,'+doc.id+')" style="margin-top:1rem;display:flex;gap:.5rem"><input type="text" id="commentText" placeholder="Добавить комментарий..." style="flex:1;padding:.5rem .75rem;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg);color:var(--text)"><button class="btn btn-primary" type="submit">Отправить</button></form></div></div></div><div class="doc-sidebar-panel"><div class="card"><div class="card-header">Действия</div><div class="card-body" style="display:flex;flex-direction:column;gap:.375rem">'+actH+'</div></div><div class="card"><div class="card-header">Согласование</div><div class="card-body">'+apH+'</div></div>'+resH+'<div class="card"><div class="card-header">QR-код</div><div class="card-body" style="text-align:center"><div style="width:120px;height:120px;background:var(--g200);border-radius:var(--radius);margin:0 auto;display:flex;align-items:center;justify-content:center;font-size:.75rem;color:var(--text-secondary)">QR-код</div></div></div>'+hisH+verH+'</div></div>'
 }
 async function addComment(e,docId){e.preventDefault();var text=document.getElementById('commentText').value.trim();if(!text)return false;try{await api('/api/documents/'+docId+'/comments',{method:'POST',body:{text:text}});toast('Комментарий добавлен','success');await loadDocs();showPage('detail',docId)}catch(err){toast(err.message,'error')}return false}
@@ -635,6 +636,60 @@ function uploadToDoc(docId){var inp=document.createElement('input');inp.type='fi
 function importDocFile(){var inp=document.createElement('input');inp.type='file';inp.accept='.pdf,.docx';inp.onchange=async function(){var file=inp.files[0];if(!file)return;var ext=file.name.split('.').pop().toLowerCase();if(ext!=='pdf'&&ext!=='docx'){toast('Поддерживаются только PDF и DOCX','error');return}var fd=new FormData();fd.append('file',file);fd.append('doc_type','other');try{toast('Загрузка и обработка файла...','info');var doc=await api('/api/documents/import',{method:'POST',body:fd});toast('Документ создан из '+file.name,'success');await loadDocs();showPage('detail',doc.id)}catch(e){toast(e.message||'Ошибка импорта','error')}};inp.click()}
 
 function exportDoc(docId,fmt){var token=localStorage.getItem('edo-token');var url=API_BASE+'/api/documents/'+docId+'/export/'+fmt;fetch(url,{headers:{'Authorization':'Bearer '+token}}).then(function(r){if(!r.ok)throw new Error('Ошибка экспорта');return r.blob()}).then(function(blob){var a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='document.'+fmt;document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(a.href);toast('Файл скачан','success')}).catch(function(e){toast(e.message,'error')})}
+
+function printDoc(docId){
+  var doc=documents.find(function(d){return d.id===docId});
+  if(!doc){toast('Документ не найден','error');return}
+  var ef=doc.extra_fields||{};
+  var extraRows='';
+  var fields=EXTRA_FIELDS[doc.doc_type]||[];
+  fields.forEach(function(f){
+    var v=ef[f.key];
+    if(v!==undefined&&v!=='')extraRows+='<tr><td style="font-weight:600;padding:4px 12px 4px 0;white-space:nowrap;vertical-align:top">'+esc(f.label)+':</td><td style="padding:4px 0">'+esc(String(v))+'</td></tr>';
+  });
+  var extraBlock=extraRows?'<table style="margin-bottom:16px;border-collapse:collapse">'+extraRows+'</table>':'';
+  var appRows='';
+  (doc.approvals||[]).forEach(function(a){
+    var icon=a.status==='approved'?'\u2705':a.status==='rejected'?'\u274C':'\u23F3';
+    var statusText=a.status==='approved'?'Согласовано':a.status==='rejected'?'Отклонено':'Ожидание';
+    var dateStr=a.decided_at?new Date(a.decided_at).toLocaleDateString('ru-RU'):'';
+    appRows+='<tr><td style="padding:4px 12px 4px 0">'+icon+' '+esc(a.user_name||'ID:'+a.user_id)+'</td><td style="padding:4px 12px 4px 0">'+statusText+'</td><td style="padding:4px 0">'+dateStr+'</td></tr>';
+  });
+  var appBlock=appRows?'<h3 style="margin:20px 0 8px;font-size:14px">Согласование</h3><table style="border-collapse:collapse;width:100%">'+appRows+'</table>':'';
+  var resBlock='';
+  if(doc.resolution){resBlock='<div style="margin-top:16px;padding:10px;border:1px solid #ccc;border-radius:4px"><strong>Резолюция</strong> ('+esc(doc.resolution.user_name)+'):<br>'+esc(doc.resolution.text)+'</div>'}
+  var attList='';
+  (doc.attachments||[]).forEach(function(a){attList+='<li>'+esc(a.filename)+' ('+esc(a.size||'')+')</li>'});
+  var attBlock=attList?'<h3 style="margin:20px 0 8px;font-size:14px">Вложения</h3><ul>'+attList+'</ul>':'';
+  var w=window.open('','_blank','width=800,height=600');
+  w.document.write('<!DOCTYPE html><html><head><meta charset="utf-8"><title>'+esc(doc.title)+' - Печать</title><style>'+
+    'body{font-family:Arial,sans-serif;margin:40px;color:#111;font-size:13px;line-height:1.5}'+
+    'h1{font-size:18px;margin-bottom:4px}'+
+    'h3{font-size:14px;border-bottom:1px solid #ddd;padding-bottom:4px}'+
+    '.meta{color:#555;font-size:12px;margin-bottom:16px}'+
+    '.content{white-space:pre-wrap;border:1px solid #ddd;padding:16px;border-radius:4px;margin:12px 0;background:#fafafa;font-size:13px}'+
+    'table{font-size:13px}'+
+    '@media print{body{margin:20px}}</style></head><body>'+
+    '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px">'+
+    '<div><h1>'+esc(doc.title)+'</h1>'+
+    '<div class="meta">'+esc(DOC_TYPES[doc.doc_type]||doc.doc_type)+' &bull; №'+esc(doc.number||String(doc.id))+' &bull; '+(STATUSES[doc.status]||doc.status)+'</div></div>'+
+    '<div style="text-align:right;font-size:12px;color:#555">'+formatDateTime(doc.created_at)+'</div></div>'+
+    '<table style="margin-bottom:16px;border-collapse:collapse">'+
+    '<tr><td style="font-weight:600;padding:4px 12px 4px 0">Автор:</td><td style="padding:4px 0">'+esc(doc.author_name)+'</td></tr>'+
+    '<tr><td style="font-weight:600;padding:4px 12px 4px 0">Приоритет:</td><td style="padding:4px 0">'+esc({high:'Высокий',urgent:'Срочный',normal:'Обычный',low:'Низкий'}[doc.priority]||doc.priority)+'</td></tr>'+
+    (doc.deadline?'<tr><td style="font-weight:600;padding:4px 12px 4px 0">Дедлайн:</td><td style="padding:4px 0">'+formatDate(doc.deadline)+'</td></tr>':'')+
+    (doc.description?'<tr><td style="font-weight:600;padding:4px 12px 4px 0">Описание:</td><td style="padding:4px 0">'+esc(doc.description)+'</td></tr>':'')+
+    '</table>'+extraBlock+
+    '<h3 style="margin:20px 0 8px;font-size:14px">Содержание</h3>'+
+    '<div class="content">'+esc(doc.content)+'</div>'+
+    appBlock+resBlock+attBlock+
+    '<div style="margin-top:40px;font-size:11px;color:#999;border-top:1px solid #ddd;padding-top:8px">'+
+    'ЭДО — Электронный документооборот &bull; Документ №'+esc(doc.number||String(doc.id))+' &bull; Распечатано: '+new Date().toLocaleString('ru-RU')+
+    '</div></body></html>');
+  w.document.close();
+  w.focus();
+  setTimeout(function(){w.print()},300);
+}
 
 function renderApprovals(el){
   var pend=documents.filter(function(d){return canUserApprove(d)});
