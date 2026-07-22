@@ -1244,10 +1244,19 @@ def delete_file(att_id: int, db: Session = Depends(get_db), user: User = Depends
 @app.post("/api/documents/{doc_id}/comments", response_model=DocumentOut)
 def add_comment(doc_id: int, data: CommentCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     doc = load_doc(db, doc_id)
-    db.add(Comment(document_id=doc.id, user_id=user.id, text=sanitize(data.text)))
-    add_history(db, doc, user.name, "Комментарий: " + sanitize(data.text)[:40])
+    text_clean = sanitize(data.text)
+    db.add(Comment(document_id=doc.id, user_id=user.id, text=text_clean))
+    add_history(db, doc, user.name, "Комментарий: " + text_clean[:40])
     if doc.author_id != user.id:
         add_notification(db, doc.author_id, "comment", "Комментарий", f'{user.name}: "{doc.title}"', doc.id)
+    # @mentions: notify mentioned users
+    mentions = re.findall(r'@(\w+)', text_clean)
+    if mentions:
+        mentioned_users = db.query(User).filter(User.login.in_(mentions)).all()
+        for mu in mentioned_users:
+            if mu.id != user.id and mu.id != doc.author_id:
+                add_notification(db, mu.id, "mention", "Упоминание",
+                                 f'{user.name} упомянул вас в комментарии к "{doc.title}"', doc.id)
     doc.updated_at = datetime.now(timezone.utc)
     db.commit()
     return doc_to_out(load_doc(db, doc.id))
@@ -2977,6 +2986,371 @@ def ai_generate(
         return {"content": reply}
     except Exception as e:
         raise HTTPException(500, f"Ошибка ИИ: {str(e)}")
+
+
+# ============ BULK APPROVE ============
+
+@app.post("/api/documents/bulk-approve")
+def bulk_approve(data: dict, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """Approve multiple documents at once."""
+    doc_ids = data.get("doc_ids", [])
+    comment = sanitize(data.get("comment", "Массовое согласование"))
+    if not doc_ids or len(doc_ids) > 50:
+        raise HTTPException(400, "Укажите от 1 до 50 документов")
+    approved_count = 0
+    for did in doc_ids:
+        try:
+            doc = load_doc(db, did)
+            if doc.status != "pending":
+                continue
+            approval, err = find_approval_for_user(doc, user, db)
+            if not approval:
+                continue
+            approval.status = "approved"
+            approval.comment = comment
+            approval.signature = secrets.token_hex(32)
+            approval.decided_at = datetime.now(timezone.utc)
+            add_history(db, doc, user.name, f"ЭЦП (массово): {user.name}")
+            all_approved = all(a.status == "approved" for a in doc.approvals)
+            if all_approved:
+                doc.status = "approved"
+                add_history(db, doc, user.name, "Полностью согласован")
+                add_notification(db, doc.author_id, "approved", "Согласован", f'"{doc.title}" согласован', doc.id)
+            doc.updated_at = datetime.now(timezone.utc)
+            approved_count += 1
+        except Exception:
+            continue
+    add_audit(db, user.id, user.name, "bulk_approve", "document", details=f"{approved_count} документов")
+    db.commit()
+    return {"ok": True, "approved": approved_count}
+
+
+# ============ DIFF VERSIONS ============
+
+@app.get("/api/documents/{doc_id}/diff")
+def diff_versions(doc_id: int, v1: int = 0, v2: int = 0, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """Compare two versions of a document."""
+    doc = load_doc(db, doc_id)
+    check_doc_access(doc, user, db)
+    versions = sorted(doc.versions, key=lambda v: v.created_at)
+    if not versions:
+        return {"lines": [], "v1": None, "v2": None}
+    # Default: compare last two versions (or last version vs current)
+    if v1 and v2:
+        ver1 = next((v for v in versions if v.id == v1), None)
+        ver2 = next((v for v in versions if v.id == v2), None)
+    elif len(versions) >= 2:
+        ver1 = versions[-2]
+        ver2 = versions[-1]
+    else:
+        ver1 = versions[-1]
+        ver2 = None  # current
+    text1 = ver1.content if ver1 else ""
+    text2 = ver2.content if ver2 else doc.content
+    title1 = ver1.title if ver1 else ""
+    title2 = ver2.title if ver2 else doc.title
+    # Simple line-by-line diff
+    lines1 = text1.split("\n")
+    lines2 = text2.split("\n")
+    diff_lines = []
+    max_len = max(len(lines1), len(lines2))
+    for i in range(max_len):
+        l1 = lines1[i] if i < len(lines1) else ""
+        l2 = lines2[i] if i < len(lines2) else ""
+        if l1 == l2:
+            diff_lines.append({"type": "same", "text": l1})
+        else:
+            if l1:
+                diff_lines.append({"type": "removed", "text": l1})
+            if l2:
+                diff_lines.append({"type": "added", "text": l2})
+    return {
+        "lines": diff_lines,
+        "v1": {"id": ver1.id, "title": title1, "date": str(ver1.created_at), "user": ver1.user_name} if ver1 else None,
+        "v2": {"id": ver2.id, "title": title2, "date": str(ver2.created_at), "user": ver2.user_name} if ver2 else {"title": doc.title, "date": str(doc.updated_at), "user": "Текущая"},
+    }
+
+
+# ============ KPI ============
+
+@app.get("/api/kpi")
+def get_kpi(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """Employee KPI statistics."""
+    from sqlalchemy import func
+    now = datetime.now(timezone.utc)
+    results = []
+    users_list = db.query(User).all()
+    for u in users_list:
+        # Documents created
+        docs_created = db.query(func.count(Document.id)).filter(
+            Document.author_id == u.id, Document.deleted == False
+        ).scalar()
+        # Approvals done
+        approvals_done = db.query(func.count(Approval.id)).filter(
+            Approval.user_id == u.id, Approval.status.in_(["approved", "rejected"])
+        ).scalar()
+        # Tasks completed
+        tasks_done = db.query(func.count(Task.id)).filter(
+            Task.assignee_id == u.id, Task.status == "completed"
+        ).scalar()
+        tasks_total = db.query(func.count(Task.id)).filter(
+            Task.assignee_id == u.id
+        ).scalar()
+        # Tasks overdue
+        tasks_overdue = 0
+        overdue_tasks = db.query(Task).filter(
+            Task.assignee_id == u.id, Task.status.in_(["pending", "in_progress"]),
+            Task.deadline != "",
+        ).all()
+        for t in overdue_tasks:
+            try:
+                dl = datetime.strptime(t.deadline[:10], "%Y-%m-%d").replace(tzinfo=timezone.utc)
+                if dl < now:
+                    tasks_overdue += 1
+            except (ValueError, TypeError):
+                pass
+        # Avg approval time
+        avg_time = 0
+        approved_apps = db.query(Approval).filter(
+            Approval.user_id == u.id, Approval.status == "approved",
+            Approval.decided_at != None
+        ).all()
+        if approved_apps:
+            total_hours = 0
+            count = 0
+            for a in approved_apps:
+                doc = db.query(Document).filter(Document.id == a.document_id).first()
+                if doc and doc.created_at and a.decided_at:
+                    diff = (a.decided_at - doc.created_at).total_seconds() / 3600
+                    total_hours += diff
+                    count += 1
+            avg_time = round(total_hours / count, 1) if count else 0
+        results.append({
+            "user_id": u.id, "name": u.name, "department": u.department or "",
+            "position": u.position or "",
+            "docs_created": docs_created, "approvals_done": approvals_done,
+            "tasks_done": tasks_done, "tasks_total": tasks_total,
+            "tasks_overdue": tasks_overdue, "avg_approval_hours": avg_time,
+        })
+    return results
+
+
+# ============ iCal EXPORT ============
+
+@app.get("/api/calendar.ics")
+def export_ical(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """Export deadlines as iCalendar file."""
+    from fastapi.responses import Response
+    lines = [
+        "BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//EDO//RU",
+        "CALSCALE:GREGORIAN", "METHOD:PUBLISH",
+    ]
+    # Document deadlines
+    docs = db.query(Document).filter(
+        Document.deleted == False, Document.deadline != "",
+        (Document.author_id == user.id) |
+        Document.id.in_(db.query(Approval.document_id).filter(Approval.user_id == user.id))
+    ).all()
+    for d in docs:
+        try:
+            dl = datetime.strptime(d.deadline[:10], "%Y-%m-%d")
+            dt_str = dl.strftime("%Y%m%d")
+            lines.extend([
+                "BEGIN:VEVENT",
+                f"DTSTART;VALUE=DATE:{dt_str}",
+                f"DTEND;VALUE=DATE:{dt_str}",
+                f"SUMMARY:[ЭДО] {d.title}",
+                f"DESCRIPTION:Тип: {DOC_TYPE_LABELS.get(d.doc_type, d.doc_type)}\\nСтатус: {STATUS_LABELS.get(d.status, d.status)}",
+                f"UID:edo-doc-{d.id}@edo",
+                "END:VEVENT",
+            ])
+        except (ValueError, TypeError):
+            pass
+    # Task deadlines
+    tasks = db.query(Task).filter(
+        Task.deadline != "",
+        (Task.assignee_id == user.id) | (Task.author_id == user.id)
+    ).all()
+    for t in tasks:
+        try:
+            dl = datetime.strptime(t.deadline[:10], "%Y-%m-%d")
+            dt_str = dl.strftime("%Y%m%d")
+            lines.extend([
+                "BEGIN:VEVENT",
+                f"DTSTART;VALUE=DATE:{dt_str}",
+                f"DTEND;VALUE=DATE:{dt_str}",
+                f"SUMMARY:[Поручение] {t.title}",
+                f"DESCRIPTION:Статус: {t.status}\\nПриоритет: {t.priority}",
+                f"UID:edo-task-{t.id}@edo",
+                "END:VEVENT",
+            ])
+        except (ValueError, TypeError):
+            pass
+    lines.append("END:VCALENDAR")
+    content = "\r\n".join(lines)
+    return Response(content=content, media_type="text/calendar",
+                    headers={"Content-Disposition": "attachment; filename=edo-calendar.ics"})
+
+
+# ============ WEBHOOK ============
+
+_webhooks: list[dict] = []  # In-memory webhook store
+
+
+@app.get("/api/webhooks")
+def list_webhooks(user: User = Depends(get_current_user)):
+    if user.role != "admin":
+        raise HTTPException(403, "Только администратор")
+    return _webhooks
+
+
+@app.post("/api/webhooks")
+def create_webhook(data: dict, user: User = Depends(get_current_user)):
+    if user.role != "admin":
+        raise HTTPException(403, "Только администратор")
+    url = data.get("url", "").strip()
+    events = data.get("events", ["all"])
+    if not url:
+        raise HTTPException(400, "URL обязателен")
+    wh = {"id": len(_webhooks) + 1, "url": url, "events": events, "active": True}
+    _webhooks.append(wh)
+    return wh
+
+
+@app.delete("/api/webhooks/{wh_id}")
+def delete_webhook(wh_id: int, user: User = Depends(get_current_user)):
+    if user.role != "admin":
+        raise HTTPException(403, "Только администратор")
+    global _webhooks
+    _webhooks = [w for w in _webhooks if w["id"] != wh_id]
+    return {"ok": True}
+
+
+def _fire_webhooks(event: str, payload: dict):
+    """Send webhook notifications (non-blocking)."""
+    import threading
+    def _send(url, data):
+        try:
+            import urllib.request
+            body = json.dumps(data, ensure_ascii=False, default=str).encode()
+            req = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json"}, method="POST")
+            urllib.request.urlopen(req, timeout=10)
+        except Exception:
+            pass
+    for wh in _webhooks:
+        if not wh.get("active"):
+            continue
+        if "all" in wh["events"] or event in wh["events"]:
+            threading.Thread(target=_send, args=(wh["url"], {"event": event, **payload}), daemon=True).start()
+
+
+# ============ DATABASE BACKUP ============
+
+@app.get("/api/backup")
+def download_backup(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """Download database backup (admin only)."""
+    if user.role != "admin":
+        raise HTTPException(403, "Только администратор")
+    import tempfile, csv, io, zipfile
+    zip_buf = io.BytesIO()
+    with zipfile.ZipFile(zip_buf, 'w', zipfile.ZIP_DEFLATED) as zf:
+        # Export each table as CSV
+        tables = {
+            "users": User, "documents": Document, "tags": Tag,
+            "approvals": Approval, "comments": Comment,
+            "notifications": Notification, "tasks": Task,
+            "audit_log": AuditLog,
+        }
+        for name, model in tables.items():
+            try:
+                rows = db.query(model).all()
+                buf = io.StringIO()
+                if rows:
+                    cols = [c.name for c in model.__table__.columns]
+                    w = csv.writer(buf)
+                    w.writerow(cols)
+                    for row in rows:
+                        w.writerow([getattr(row, c, "") for c in cols])
+                zf.writestr(f"{name}.csv", buf.getvalue())
+            except Exception:
+                continue
+    zip_buf.seek(0)
+    from fastapi.responses import Response
+    return Response(
+        content=zip_buf.read(),
+        media_type="application/zip",
+        headers={"Content-Disposition": f"attachment; filename=edo-backup-{datetime.now().strftime('%Y%m%d-%H%M')}.zip"}
+    )
+
+
+# ============ ANALYTICS PDF EXPORT ============
+
+@app.get("/api/analytics/export/pdf")
+def export_analytics_pdf(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """Export analytics as PDF."""
+    from fpdf import FPDF
+    import tempfile
+    from sqlalchemy import func
+
+    pdf = FPDF()
+    font_path = os.path.join(os.path.dirname(__file__), "fonts", "DejaVuSans.ttf")
+    if os.path.exists(font_path):
+        pdf.add_font("dejavu", "", font_path, uni=True)
+        pdf.add_font("dejavu", "B", os.path.join(os.path.dirname(__file__), "fonts", "DejaVuSans-Bold.ttf"), uni=True)
+        fn = "dejavu"
+    else:
+        fn = "Helvetica"
+
+    pdf.add_page()
+    pdf.set_font(fn, "B", 16)
+    pdf.cell(0, 12, "Аналитический отчет ЭДО", ln=True, align="C")
+    pdf.set_font(fn, "", 10)
+    pdf.cell(0, 8, f"Дата: {datetime.now().strftime('%d.%m.%Y %H:%M')}", ln=True, align="C")
+    pdf.ln(8)
+
+    # Stats
+    total = db.query(func.count(Document.id)).filter(Document.deleted == False).scalar()
+    by_status = {}
+    docs = db.query(Document).filter(Document.deleted == False).all()
+    for d in docs:
+        by_status[d.status] = by_status.get(d.status, 0) + 1
+
+    pdf.set_font(fn, "B", 12)
+    pdf.cell(0, 10, "Общая статистика", ln=True)
+    pdf.set_font(fn, "", 10)
+    pdf.cell(0, 7, f"Всего документов: {total}", ln=True)
+    for st, cnt in by_status.items():
+        label = STATUS_LABELS.get(st, st)
+        pdf.cell(0, 7, f"  {label}: {cnt}", ln=True)
+
+    pdf.ln(5)
+    pdf.set_font(fn, "B", 12)
+    pdf.cell(0, 10, "KPI сотрудников", ln=True)
+    pdf.set_font(fn, "", 9)
+
+    # KPI table
+    users_list = db.query(User).all()
+    pdf.set_font(fn, "B", 8)
+    cols = ["Сотрудник", "Документы", "Согласования", "Задачи"]
+    col_w = [70, 35, 40, 45]
+    for i, c in enumerate(cols):
+        pdf.cell(col_w[i], 7, c, border=1)
+    pdf.ln()
+    pdf.set_font(fn, "", 8)
+    for u in users_list:
+        dc = db.query(func.count(Document.id)).filter(Document.author_id == u.id, Document.deleted == False).scalar()
+        ac = db.query(func.count(Approval.id)).filter(Approval.user_id == u.id, Approval.status.in_(["approved", "rejected"])).scalar()
+        tc = db.query(func.count(Task.id)).filter(Task.assignee_id == u.id, Task.status == "completed").scalar()
+        tt = db.query(func.count(Task.id)).filter(Task.assignee_id == u.id).scalar()
+        pdf.cell(col_w[0], 6, u.name[:30], border=1)
+        pdf.cell(col_w[1], 6, str(dc), border=1)
+        pdf.cell(col_w[2], 6, str(ac), border=1)
+        pdf.cell(col_w[3], 6, f"{tc}/{tt}", border=1)
+        pdf.ln()
+
+    tmp = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
+    pdf.output(tmp.name)
+    return FileResponse(tmp.name, filename="analytics.pdf", media_type="application/pdf")
 
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
