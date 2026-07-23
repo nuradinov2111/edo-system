@@ -33,7 +33,7 @@ from collections import defaultdict
 
 # Rate limiting for login
 _login_attempts: dict[str, list[float]] = defaultdict(list)
-_LOGIN_MAX_ATTEMPTS = 5
+_LOGIN_MAX_ATTEMPTS = 30
 _LOGIN_WINDOW = 300  # 5 minutes
 _login_last_cleanup = 0.0
 
