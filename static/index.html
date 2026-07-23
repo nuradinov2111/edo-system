@@ -288,6 +288,8 @@ tr:hover td{background:var(--g50)}
       <button class="nav-item buh-only hidden" data-page="journal" onclick="showPage('journal')"><span>&#128214;</span> Журнал регистрации</button>
       <button class="nav-item admin-only hidden" data-page="nomenclature" onclick="showPage('nomenclature')"><span>&#128193;</span> Номенклатура дел</button>
       <div class="nav-section">Личное</div>
+      <button class="nav-item" data-page="unread" onclick="showPage('unread')"><span>&#128172;</span> Непрочитанные</button>
+      <button class="nav-item" data-page="advsearch" onclick="showPage('advsearch')"><span>&#128269;</span> Расш. поиск</button>
       <button class="nav-item" data-page="favorites" onclick="showPage('favorites')"><span>&#11088;</span> Избранное</button>
       <button class="nav-item" data-page="controlled" onclick="showPage('controlled')"><span>&#127919;</span> На контроле</button>
       <button class="nav-item" data-page="reminders" onclick="showPage('reminders')"><span>&#9200;</span> Напоминания</button>
@@ -419,7 +421,7 @@ async function doRegister(e){e.preventDefault();var errEl=document.getElementByI
 
 function doLogout(){localStorage.removeItem('edo-token');currentUser=null;documents=[];allUsers=[];allTags=[];notifications=[];allRoutes=[];document.getElementById('authPage').classList.remove('hidden');document.getElementById('appWrap').classList.add('hidden');document.getElementById('aiFab').style.display='none';document.getElementById('aiPanel').classList.remove('open');aiHistory=[];aiCurrentDocId=null}
 
-async function enterApp(){document.getElementById('authPage').classList.add('hidden');document.getElementById('appWrap').classList.remove('hidden');document.getElementById('aiFab').style.display='flex';updateUserUI();await Promise.all([loadDocs(),loadUsers(),loadTags(),loadNotifs(),loadRoutes(),loadTasks(),loadServerTemplates(),loadPinned()]);showPage('dashboard')}
+async function enterApp(){document.getElementById('authPage').classList.add('hidden');document.getElementById('appWrap').classList.remove('hidden');document.getElementById('aiFab').style.display='flex';updateUserUI();await Promise.all([loadDocs(),loadUsers(),loadTags(),loadNotifs(),loadRoutes(),loadTasks(),loadServerTemplates(),loadPinned(),loadFavTemplates()]);showPage('dashboard')}
 async function loadPinned(){try{pinnedIds=await api('/api/pinned')}catch(e){pinnedIds=[]}}
 
 function updateUserUI(){if(!currentUser)return;document.getElementById('userName').textContent=currentUser.name;var statusMap={available:'Доступен',away:'Не в офисе',vacation:'В отпуске'};document.getElementById('userRole').innerHTML=(currentUser.role==='admin'?'Администратор':'Сотрудник')+' <span class="status-dot status-'+(currentUser.user_status||'available')+'" style="margin-left:4px"></span>';var av=document.getElementById('userAvatar');av.textContent=currentUser.name.charAt(0).toUpperCase();av.style.background=currentUser.color||'#2563eb';document.querySelectorAll('.admin-only').forEach(function(el){el.classList.toggle('hidden',currentUser.role!=='admin')});var isBuh=currentUser.role==='admin'||currentUser.department==='Бухгалтерия';document.querySelectorAll('.buh-only').forEach(function(el){el.classList.toggle('hidden',!isBuh)})}
@@ -433,7 +435,7 @@ async function loadTasks(){try{allTasks=await api('/api/tasks');var myPending=al
 async function loadTrash(){try{trashDocs=await api('/api/documents/trash')}catch(e){trashDocs=[]}}
 function updateApprovalBadge(){var count=documents.filter(function(d){return canUserApprove(d)}).length;var badge=document.getElementById('approvalBadge');if(count>0){badge.textContent=count;badge.classList.remove('hidden')}else{badge.classList.add('hidden')}}
 
-function showPage(name,param){var adminPages=['kanban','calendar','analytics','archive','trash','users','settings','audit','nomenclature','reports','deptstats'];if(currentUser&&currentUser.role!=='admin'&&adminPages.indexOf(name)>=0){name='documents'}var buhPages=['incoming','outgoing','journal'];if(currentUser&&buhPages.indexOf(name)>=0&&currentUser.role!=='admin'&&currentUser.department!=='Бухгалтерия'){name='documents'}currentPage=name;currentPageParam=param;selectedIds.clear();sortCol='';sortDir=1;if(name!=='detail')aiSetDoc(null);document.querySelectorAll('.nav-item').forEach(function(n){n.classList.toggle('active',n.dataset.page===name)});if(window.innerWidth<768)document.getElementById('sidebar').classList.remove('open');var pc=document.getElementById('pageContent');switch(name){case'dashboard':renderDashboard(pc);break;case'documents':renderDocuments(pc);break;case'create':renderCreateEdit(pc,param);break;case'detail':renderDetail(pc,param);break;case'approvals':renderApprovals(pc);break;case'kanban':renderKanban(pc);break;case'calendar':renderCalendar(pc);break;case'analytics':renderAnalytics(pc);break;case'archive':renderArchive(pc);break;case'notifications':renderNotifications(pc);break;case'users':renderUsers(pc);break;case'settings':renderSettings(pc);break;case'templates':renderTemplates(pc);break;case'tasks':renderTasks(pc);break;case'trash':renderTrash(pc);break;case'profile':renderProfile(pc);break;case'incoming':renderIncoming(pc);break;case'outgoing':renderOutgoing(pc);break;case'audit':renderAuditLog(pc);break;case'journal':renderJournal(pc);break;case'nomenclature':renderNomenclature(pc);break;case'reports':renderReports(pc);break;case'favorites':renderFavorites(pc);break;case'delegations':renderDelegations(pc);break;case'mystats':renderMyStats(pc);break;case'controlled':renderControlled(pc);break;case'reminders':renderReminders(pc);break;case'deptstats':renderDeptStats(pc);break;default:pc.innerHTML='<p>\u0421\u0442\u0440\u0430\u043d\u0438\u0446\u0430 \u043d\u0435 \u043d\u0430\u0439\u0434\u0435\u043d\u0430</p>'}}
+function showPage(name,param){var adminPages=['kanban','calendar','analytics','archive','trash','users','settings','audit','nomenclature','reports','deptstats'];if(currentUser&&currentUser.role!=='admin'&&adminPages.indexOf(name)>=0){name='documents'}var buhPages=['incoming','outgoing','journal'];if(currentUser&&buhPages.indexOf(name)>=0&&currentUser.role!=='admin'&&currentUser.department!=='Бухгалтерия'){name='documents'}currentPage=name;currentPageParam=param;selectedIds.clear();sortCol='';sortDir=1;if(name!=='detail')aiSetDoc(null);document.querySelectorAll('.nav-item').forEach(function(n){n.classList.toggle('active',n.dataset.page===name)});if(window.innerWidth<768)document.getElementById('sidebar').classList.remove('open');var pc=document.getElementById('pageContent');switch(name){case'dashboard':renderDashboard(pc);break;case'documents':renderDocuments(pc);break;case'create':renderCreateEdit(pc,param);break;case'detail':renderDetail(pc,param);break;case'approvals':renderApprovals(pc);break;case'kanban':renderKanban(pc);break;case'calendar':renderCalendar(pc);break;case'analytics':renderAnalytics(pc);break;case'archive':renderArchive(pc);break;case'notifications':renderNotifications(pc);break;case'users':renderUsers(pc);break;case'settings':renderSettings(pc);break;case'templates':renderTemplates(pc);break;case'tasks':renderTasks(pc);break;case'trash':renderTrash(pc);break;case'profile':renderProfile(pc);break;case'incoming':renderIncoming(pc);break;case'outgoing':renderOutgoing(pc);break;case'audit':renderAuditLog(pc);break;case'journal':renderJournal(pc);break;case'nomenclature':renderNomenclature(pc);break;case'reports':renderReports(pc);break;case'favorites':renderFavorites(pc);break;case'delegations':renderDelegations(pc);break;case'mystats':renderMyStats(pc);break;case'controlled':renderControlled(pc);break;case'reminders':renderReminders(pc);break;case'deptstats':renderDeptStats(pc);break;case'unread':renderUnread(pc);break;case'advsearch':renderAdvSearch(pc);break;default:pc.innerHTML='<p>\u0421\u0442\u0440\u0430\u043d\u0438\u0446\u0430 \u043d\u0435 \u043d\u0430\u0439\u0434\u0435\u043d\u0430</p>'}}
 
 function toggleSidebar(){document.getElementById('sidebar').classList.toggle('open')}
 function toggleTheme(){var t=document.documentElement.getAttribute('data-theme')==='dark'?'light':'dark';document.documentElement.setAttribute('data-theme',t);localStorage.setItem('edo-theme',t);var btn=document.querySelector('.theme-toggle');if(btn)btn.innerHTML=t==='dark'?'&#9728;':'&#127763;';btn.title=t==='dark'?'Светлая тема':'Тёмная тема'}
@@ -529,7 +531,7 @@ function renderDocTable(){
 function doSort(col){if(sortCol===col)sortDir*=-1;else{sortCol=col;sortDir=1}renderDocTable()}
 function toggleSelect(id,checked){if(checked)selectedIds.add(id);else selectedIds.delete(id);renderBulkBar()}
 function toggleAllSelect(checked){if(checked)documents.forEach(function(d){selectedIds.add(d.id)});else selectedIds.clear();renderDocTable()}
-function renderBulkBar(){var w=document.getElementById('bulkBarWrap');if(!w)return;if(selectedIds.size===0){w.innerHTML='';return}w.innerHTML='<div class="bulk-bar"><span>Выбрано: '+selectedIds.size+'</span><button onclick="bulkApprove()">&#10003; Согласовать</button><button onclick="bulkReject()">&#10007; Отклонить</button><button onclick="bulkAddTags()">&#127991; Метки</button><button onclick="batchPrint()">&#128424; Печать</button><button onclick="exportSelectedZip()">&#128230; ZIP</button><button onclick="bulkActionNew(\'archive\')">&#128451; В архив</button><button onclick="bulkActionNew(\'delete\')" style="background:#ef4444">&#128465; Удалить</button><button onclick="selectedIds.clear();renderDocTable()">Снять выбор</button></div>'}
+function renderBulkBar(){var w=document.getElementById('bulkBarWrap');if(!w)return;if(selectedIds.size===0){w.innerHTML='';return}w.innerHTML='<div class="bulk-bar"><span>Выбрано: '+selectedIds.size+'</span><button onclick="bulkApprove()">&#10003; Согласовать</button><button onclick="bulkReject()">&#10007; Отклонить</button><button onclick="bulkAddTags()">&#127991; Метки</button><button onclick="batchPrint()">&#128424; Печать</button><button onclick="exportSelectedZip()">&#128230; ZIP</button><button onclick="bulkActionNew(\'archive\')">&#128451; В архив</button><button onclick="bulkReassign()">&#128257; Переназначить</button><button onclick="bulkActionNew(\'delete\')" style="background:#ef4444">&#128465; Удалить</button><button onclick="selectedIds.clear();renderDocTable()">Снять выбор</button></div>'}
 async function bulkApprove(){for(var id of selectedIds){try{await api('/api/documents/'+id+'/approve',{method:'POST',body:{comment:''}})}catch(e){}}selectedIds.clear();await loadDocs();await loadNotifs();toast('Документы согласованы','success');showPage('documents')}
 async function bulkReject(){var comment=prompt('Комментарий к отклонению:');if(comment===null)return;for(var id of selectedIds){try{await api('/api/documents/'+id+'/reject',{method:'POST',body:{comment:comment}})}catch(e){}}selectedIds.clear();await loadDocs();await loadNotifs();toast('Документы отклонены','warning');showPage('documents')}
 async function bulkAction(action){var labels={delete:'Удалить',archive:'Архивировать',restore:'Восстановить'};if(!confirm(labels[action]+' выбранные документы ('+selectedIds.size+')?'))return;try{var r=await api('/api/documents/bulk',{method:'POST',body:{doc_ids:Array.from(selectedIds),action:action}});toast('Обработано: '+r.processed+' документов','success');selectedIds.clear();await loadDocs();showPage(currentPage)}catch(e){toast(e.message,'error')}}
@@ -647,6 +649,8 @@ function renderDetail(el,docId){
   actH+='<button class="btn btn-outline btn-block" onclick="togglePin('+doc.id+')">&#128204; Закрепить</button>';
   actH+='<button class="btn btn-outline btn-block" onclick="setReminder('+doc.id+')">&#9200; Напоминание</button>';
   actH+='<button class="btn btn-outline btn-block" onclick="compareWithDoc('+doc.id+')">&#128196; Сравнить с...</button>';
+  actH+='<button class="btn btn-outline btn-block" onclick="exportHistory('+doc.id+')">&#128220; Экспорт истории</button>';
+  actH+='<button class="btn btn-outline btn-block" onclick="showRelatedSuggest('+doc.id+')">&#128279; Похожие документы</button>';
   if(currentUser&&currentUser.role==='admin')actH+='<button class="btn btn-outline btn-block" onclick="assignToCase('+doc.id+')">&#128193; \u041d\u043e\u043c\u0435\u043d\u043a\u043b\u0430\u0442\u0443\u0440\u0430</button>';
   el.innerHTML='<div style="margin-bottom:1rem"><a href="#" onclick="event.preventDefault();showPage(\'documents\')" style="font-size:.8125rem">&larr; Назад к документам</a></div><div style="display:flex;align-items:center;gap:.75rem;margin-bottom:1.25rem;flex-wrap:wrap"><h2 style="font-size:1.5rem;font-weight:700;margin:0">'+esc(doc.title)+'</h2><span style="color:var(--text-secondary);font-size:.875rem">'+esc(doc.number||'#'+doc.id)+'</span>'+statusBadge(doc.status)+' '+tagsH+'</div><div class="doc-detail"><div class="doc-main"><div class="card" style="margin-bottom:1rem"><div class="card-header">Информация</div><div class="card-body"><div class="info-grid"><div class="info-label">Тип</div><div class="info-value">'+esc(DOC_TYPES[doc.doc_type]||doc.doc_type)+'</div><div class="info-label">Автор</div><div class="info-value">'+esc(doc.author_name)+'</div><div class="info-label">Номер</div><div class="info-value">'+esc(doc.number||'\u2014')+'</div><div class="info-label">Приоритет</div><div class="info-value">'+(priorityBadge(doc.priority)||'\u2014')+'</div><div class="info-label">Создан</div><div class="info-value">'+formatDateTime(doc.created_at)+'</div><div class="info-label">Обновл\u0451н</div><div class="info-value">'+formatDateTime(doc.updated_at)+'</div><div class="info-label">Дедлайн</div><div class="info-value">'+(doc.deadline?formatDate(doc.deadline):'\u2014')+'</div><div class="info-label">Описание</div><div class="info-value">'+(esc(doc.description)||'\u2014')+'</div></div>'+extraH+attH+'</div></div><div class="card" style="margin-bottom:1rem"><div class="card-header">Содержание</div><div class="card-body"><div class="content-block">'+esc(doc.content)+'</div></div></div>'+relH+'<div class="card"><div class="card-header">Комментарии ('+(doc.comments||[]).length+')</div><div class="card-body">'+comH+'<form onsubmit="return addComment(event,'+doc.id+')" style="margin-top:1rem;display:flex;gap:.5rem"><input type="text" id="commentText" placeholder="Добавить комментарий..." style="flex:1;padding:.5rem .75rem;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg);color:var(--text)"><button class="btn btn-primary" type="submit">Отправить</button></form></div></div></div><div class="doc-sidebar-panel"><div class="card"><div class="card-header">Действия</div><div class="card-body" style="display:flex;flex-direction:column;gap:.375rem">'+actH+'</div></div><div class="card"><div class="card-header">Согласование</div><div class="card-body">'+apH+'</div></div>'+resH+'<div class="card"><div class="card-header">QR-код</div><div class="card-body" style="text-align:center"><div id="qrCodeContainer" style="margin:0 auto"><div style="width:120px;height:120px;background:var(--g200);border-radius:var(--radius);margin:0 auto;display:flex;align-items:center;justify-content:center;font-size:.75rem;color:var(--text-secondary)">Загрузка...</div></div></div></div>'+hisH+verH+'</div></div>'
 }
@@ -804,7 +808,7 @@ async function openNotif(nid,docId){try{await api('/api/notifications/'+nid+'/re
 
 function renderUsers(el){
   var grouped={};allUsers.forEach(function(u){var dept=u.department||'Без отдела';if(!grouped[dept])grouped[dept]=[];grouped[dept].push(u)});
-  var dh=Object.keys(grouped).map(function(dept){var users=grouped[dept];var rows=users.map(function(u){return'<tr><td style="display:flex;align-items:center;gap:.5rem"><div class="user-avatar" style="width:28px;height:28px;font-size:.7rem;background:'+esc(u.color||'#2563eb')+'">'+esc((u.name||'?').charAt(0).toUpperCase())+'</div>'+esc(u.name)+'</td><td>'+esc(u.login||'')+'</td><td>'+esc(u.position||'\u2014')+'</td><td><span class="badge '+(u.role==='admin'?'badge-approved':'badge-draft')+'">'+(u.role==='admin'?'Админ':'Сотрудник')+'</span></td></tr>'}).join('');return'<div class="dept-group"><div class="dept-header open" onclick="this.classList.toggle(\'open\');this.nextElementSibling.classList.toggle(\'hidden\')"><span class="arrow">&#9654;</span> '+esc(dept)+' ('+users.length+')</div><div class="dept-body"><div class="table-wrap"><table><thead><tr><th>Имя</th><th>Логин</th><th>Должность</th><th>Роль</th></tr></thead><tbody>'+rows+'</tbody></table></div></div></div>'}).join('');
+  var dh=Object.keys(grouped).map(function(dept){var users=grouped[dept];var rows=users.map(function(u){return'<tr><td style="display:flex;align-items:center;gap:.5rem"><div class="user-avatar" style="width:28px;height:28px;font-size:.7rem;background:'+esc(u.color||'#2563eb')+'">'+esc((u.name||'?').charAt(0).toUpperCase())+'</div>'+esc(u.name)+'</td><td>'+esc(u.login||'')+'</td><td>'+esc(u.position||'\u2014')+'</td><td><span class="badge '+(u.role==='admin'?'badge-approved':'badge-draft')+'">'+(u.role==='admin'?'Админ':'Сотрудник')+'</span></td><td><button class="btn btn-outline btn-sm" onclick="showUserStats('+u.id+')" title="Статистика">&#128200;</button></td></tr>'}).join('');return'<div class="dept-group"><div class="dept-header open" onclick="this.classList.toggle(\'open\');this.nextElementSibling.classList.toggle(\'hidden\')"><span class="arrow">&#9654;</span> '+esc(dept)+' ('+users.length+')</div><div class="dept-body"><div class="table-wrap"><table><thead><tr><th>Имя</th><th>Логин</th><th>Должность</th><th>Роль</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div></div></div>'}).join('');
   el.innerHTML='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem"><h2 class="page-title" style="margin-bottom:0">Сотрудники ('+allUsers.length+')</h2><button class="btn btn-primary" onclick="showAddUserModal()">&#10010; Добавить сотрудника</button></div>'+dh+'<div id="userModal"></div>'
 }
 function showAddUserModal(){var m=document.getElementById('userModal');m.innerHTML='<div class="modal-overlay" onclick="if(event.target===this)this.remove()"><div class="modal-card"><div class="modal-header"><h3>Добавить сотрудника</h3><button class="modal-close" onclick="this.closest(\'.modal-overlay\').remove()">&times;</button></div><div class="modal-body"><form onsubmit="return addUser(event)"><div class="form-group"><label>Имя *</label><input type="text" id="nuName" required></div><div class="form-group"><label>Логин (6 букв) *</label><input type="text" id="nuLogin" required maxlength="6" pattern="[A-Za-z]{6}" placeholder="abcdef"></div><div class="form-group"><label>Пароль *</label><input type="password" id="nuPass" required minlength="4"></div><div class="form-group"><label>Роль</label><select id="nuRole"><option value="user">Сотрудник</option><option value="admin">Администратор</option></select></div><div class="form-group"><label>Отдел</label><input type="text" id="nuDept"></div><div class="form-group"><label>Должность</label><input type="text" id="nuPos"></div><div style="display:flex;justify-content:flex-end;gap:.5rem;margin-top:1rem"><button class="btn btn-outline" type="button" onclick="this.closest(\'.modal-overlay\').remove()">Отмена</button><button class="btn btn-primary" type="submit">Добавить</button></div></form></div></div></div>'}
@@ -855,7 +859,7 @@ function renderTemplates(el){
   var ch=TEMPLATES.map(function(t,i){return'<div class="template-card" onclick="useTemplate('+i+')"><div class="tc-icon">'+t.icon+'</div><div class="tc-name">'+esc(t.name)+'</div><div class="tc-desc">'+esc(t.desc)+'</div></div>'}).join('');
   var srv='';
   if(serverTemplates.length>0){
-    srv='<h3 style="margin:1.5rem 0 .5rem;color:var(--text-secondary)">Сохранённые шаблоны</h3><div class="templates-grid">'+serverTemplates.map(function(t){return'<div class="template-card" style="position:relative" onclick="applyServerTemplate('+t.id+')"><div class="tc-icon">&#128196;</div><div class="tc-name">'+esc(t.name)+'</div><div class="tc-desc">'+esc(DOC_TYPES[t.doc_type]||t.doc_type)+'</div><button onclick="event.stopPropagation();fillTemplate('+t.id+')" style="position:absolute;bottom:4px;left:4px;background:none;border:none;cursor:pointer;font-size:12px;color:var(--primary)" title="Заполнить переменные">&#123;&#123;x&#125;&#125;</button>'+(t.author_id===currentUser.id||currentUser.role==='admin'?'<button onclick="event.stopPropagation();deleteServerTemplate('+t.id+')" style="position:absolute;top:4px;right:4px;background:none;border:none;cursor:pointer;font-size:14px" title="Удалить">&#10005;</button>':'')+'</div>'}).join('')+'</div>'
+    srv='<h3 style="margin:1.5rem 0 .5rem;color:var(--text-secondary)">Сохранённые шаблоны</h3><div class="templates-grid">'+serverTemplates.map(function(t){return'<div class="template-card" style="position:relative" onclick="applyServerTemplate('+t.id+')"><div class="tc-icon">&#128196;</div><div class="tc-name">'+esc(t.name)+'</div><div class="tc-desc">'+esc(DOC_TYPES[t.doc_type]||t.doc_type)+'</div><button onclick="event.stopPropagation();fillTemplate('+t.id+')" style="position:absolute;bottom:4px;left:4px;background:none;border:none;cursor:pointer;font-size:12px;color:var(--primary)" title="Заполнить переменные">&#123;&#123;x&#125;&#125;</button><button onclick="event.stopPropagation();toggleFavTemplate('+t.id+')" style="position:absolute;top:4px;left:4px;background:none;border:none;cursor:pointer;font-size:14px" title="В избранное">'+(favTemplateIds.indexOf(t.id)>=0?'&#11088;':'&#9734;')+'</button>'+(t.author_id===currentUser.id||currentUser.role==='admin'?'<button onclick="event.stopPropagation();deleteServerTemplate('+t.id+')" style="position:absolute;top:4px;right:4px;background:none;border:none;cursor:pointer;font-size:14px" title="Удалить">&#10005;</button>':'')+'</div>'}).join('')+'</div>'
   }
   el.innerHTML='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem"><h2 class="page-title" style="margin:0">Шаблоны документов</h2><button class="btn btn-primary" onclick="showSaveTemplateDialog()">&#43; Сохранить как шаблон</button></div><div class="templates-grid">'+ch+'</div>'+srv
 }
@@ -1715,6 +1719,120 @@ function showShortcutsHelp(){
   keys.forEach(function(k){html+='<div style="display:flex;justify-content:space-between"><kbd style="background:var(--g200);padding:2px 8px;border-radius:4px;font-size:.75rem;font-family:monospace">'+k[0]+'</kbd><span>'+k[1]+'</span></div>'});
   html+='</div></div></div></div>';
   document.getElementById('pageContent').insertAdjacentHTML('beforeend',html);
+}
+
+// ============ UNREAD DOCUMENTS ============
+async function renderUnread(el){
+  try{
+    var data=await api('/api/documents/unread');
+    var items=data.items||[];
+    var rows=items.map(function(d){return'<tr style="cursor:pointer" onclick="showPage(\'detail\','+d.id+')"><td>'+esc(d.number||'#'+d.id)+'</td><td style="font-weight:600">'+esc(d.title)+'</td><td>'+esc(DOC_TYPES[d.doc_type]||d.doc_type)+'</td><td>'+statusBadge(d.status)+'</td><td>'+esc(d.author_name)+'</td><td>'+formatDate(d.created_at)+'</td></tr>'}).join('');
+    el.innerHTML='<div class="page-header"><h1>&#128172; Непрочитанные документы</h1><span class="badge">'+data.count+'</span></div>'+
+      '<div class="card"><div class="table-wrap"><table class="data-table"><thead><tr><th>#</th><th>Название</th><th>Тип</th><th>Статус</th><th>Автор</th><th>Дата</th></tr></thead><tbody>'+(rows||'<tr><td colspan="6" style="text-align:center;color:var(--text-secondary)">Все документы прочитаны</td></tr>')+'</tbody></table></div></div>';
+  }catch(e){el.innerHTML='<p>Ошибка загрузки</p>'}
+}
+
+// ============ ADVANCED SEARCH ============
+async function renderAdvSearch(el){
+  var users=(USERS||[]).map(function(u){return'<option value="'+u.id+'">'+esc(u.name)+'</option>'}).join('');
+  var tags=(TAGS||[]).map(function(t){return'<option value="'+t.id+'">'+esc(t.name)+'</option>'}).join('');
+  el.innerHTML='<div class="page-header"><h1>&#128269; Расширенный поиск</h1></div>'+
+    '<div class="card" style="padding:1.5rem"><div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:1rem">'+
+    '<div class="form-group"><label>Текст поиска</label><input class="form-input" id="asQ" placeholder="Заголовок, содержание..."></div>'+
+    '<div class="form-group"><label>Тип документа</label><select class="form-input" id="asType"><option value="">Все</option>'+Object.keys(DOC_TYPES).map(function(k){return'<option value="'+k+'">'+DOC_TYPES[k]+'</option>'}).join('')+'</select></div>'+
+    '<div class="form-group"><label>Статус</label><select class="form-input" id="asStatus"><option value="">Все</option><option value="draft">Черновик</option><option value="pending">На согласовании</option><option value="approved">Согласован</option><option value="rejected">Отклонён</option><option value="archived">Архив</option></select></div>'+
+    '<div class="form-group"><label>Автор</label><select class="form-input" id="asAuthor"><option value="">Все</option>'+users+'</select></div>'+
+    '<div class="form-group"><label>Приоритет</label><select class="form-input" id="asPriority"><option value="">Все</option><option value="low">Низкий</option><option value="normal">Обычный</option><option value="high">Высокий</option><option value="urgent">Срочный</option></select></div>'+
+    '<div class="form-group"><label>Метка</label><select class="form-input" id="asTag"><option value="">Все</option>'+tags+'</select></div>'+
+    '<div class="form-group"><label>Дата от</label><input class="form-input" type="date" id="asDateFrom"></div>'+
+    '<div class="form-group"><label>Дата до</label><input class="form-input" type="date" id="asDateTo"></div>'+
+    '<div class="form-group" style="display:flex;align-items:flex-end"><button class="btn btn-primary btn-block" onclick="doAdvSearch()">&#128269; Найти</button></div>'+
+    '</div></div><div id="advSearchResults"></div>';
+}
+async function doAdvSearch(){
+  var params=new URLSearchParams();
+  var q=document.getElementById('asQ').value;if(q)params.set('q',q);
+  var t=document.getElementById('asType').value;if(t)params.set('doc_type',t);
+  var s=document.getElementById('asStatus').value;if(s)params.set('status',s);
+  var a=document.getElementById('asAuthor').value;if(a)params.set('author_id',a);
+  var p=document.getElementById('asPriority').value;if(p)params.set('priority',p);
+  var tg=document.getElementById('asTag').value;if(tg)params.set('tag_id',tg);
+  var df=document.getElementById('asDateFrom').value;if(df)params.set('date_from',df);
+  var dt=document.getElementById('asDateTo').value;if(dt)params.set('date_to',dt);
+  try{
+    var data=await api('/api/search/advanced?'+params.toString());
+    var items=data.items||[];
+    var rows=items.map(function(d){return'<tr style="cursor:pointer" onclick="showPage(\'detail\','+d.id+')"><td>'+esc(d.number||'#'+d.id)+'</td><td style="font-weight:600">'+esc(d.title)+'</td><td>'+esc(DOC_TYPES[d.doc_type]||d.doc_type)+'</td><td>'+statusBadge(d.status)+'</td><td>'+esc(d.author_name)+'</td><td>'+formatDate(d.created_at)+'</td></tr>'}).join('');
+    document.getElementById('advSearchResults').innerHTML='<div class="card" style="margin-top:1rem"><div class="page-header" style="padding:1rem 1.5rem"><h2>Результаты: '+data.count+'</h2></div><div class="table-wrap"><table class="data-table"><thead><tr><th>#</th><th>Название</th><th>Тип</th><th>Статус</th><th>Автор</th><th>Дата</th></tr></thead><tbody>'+(rows||'<tr><td colspan="6" style="text-align:center">Ничего не найдено</td></tr>')+'</tbody></table></div></div>';
+  }catch(e){document.getElementById('advSearchResults').innerHTML='<p style="color:var(--danger);margin-top:1rem">Ошибка поиска</p>'}
+}
+
+// ============ USER STATS (ADMIN) ============
+async function showUserStats(userId){
+  try{
+    var s=await api('/api/users/'+userId+'/stats');
+    var html='<div class="modal-overlay" onclick="if(event.target===this)this.remove()"><div class="modal-card" style="max-width:500px"><div class="modal-header"><h3>&#128200; Статистика: '+esc(s.user_name)+'</h3><button class="modal-close" onclick="this.closest(\'.modal-overlay\').remove()">&times;</button></div><div class="modal-body">'+
+      '<p><b>Отдел:</b> '+(s.department||'—')+'</p>'+
+      '<p><b>Документов:</b> '+s.total_docs+'</p>'+
+      '<p><b>По статусам:</b> черновик:'+s.by_status.draft+', на согл.:'+s.by_status.pending+', согл.:'+s.by_status.approved+', откл.:'+s.by_status.rejected+', архив:'+s.by_status.archived+'</p>'+
+      '<p><b>Согласований выполнено:</b> '+s.approvals_done+' | Ожидают: '+s.approvals_pending+'</p>'+
+      '<p><b>Поручений:</b> '+s.tasks_done+'/'+s.tasks_total+' выполнено</p>'+
+      '<p><b>Комментариев:</b> '+s.comments_count+'</p>'+
+      '</div></div></div>';
+    document.getElementById('pageContent').insertAdjacentHTML('beforeend',html);
+  }catch(e){toast(e.message,'error')}
+}
+
+// ============ BULK REASSIGN ============
+async function bulkReassign(){
+  if(selectedIds.size===0){toast('Выберите документы','warning');return}
+  var users=(USERS||[]).map(function(u){return u.name+' (ID:'+u.id+')'}).join(', ');
+  var inp=prompt('ID нового автора:\n'+users);
+  if(!inp)return;
+  var newId=parseInt(inp);
+  if(!newId){toast('Некорректный ID','error');return}
+  try{
+    var res=await api('/api/documents/bulk-reassign',{method:'POST',body:{doc_ids:Array.from(selectedIds),new_author_id:newId}});
+    toast('Переназначено '+res.affected+' документов на '+res.new_author,'success');
+    selectedIds.clear();await loadDocs();showPage(currentPage);
+  }catch(e){toast(e.message,'error')}
+}
+
+// ============ HISTORY EXPORT ============
+async function exportHistory(docId){
+  try{
+    var resp=await fetch('/api/documents/'+docId+'/history/export',{headers:{'Authorization':'Bearer '+TOKEN}});
+    var blob=await resp.blob();
+    var a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='history-'+docId+'.txt';a.click();
+    toast('История экспортирована','success');
+  }catch(e){toast('Ошибка экспорта','error')}
+}
+
+// ============ FAVORITE TEMPLATES ============
+var favTemplateIds=[];
+async function loadFavTemplates(){
+  try{favTemplateIds=await api('/api/templates/favorites')}catch(e){favTemplateIds=[]}
+}
+async function toggleFavTemplate(tmplId){
+  var isFav=favTemplateIds.indexOf(tmplId)>=0;
+  try{
+    await api('/api/templates/'+tmplId+'/favorite',{method:isFav?'DELETE':'POST'});
+    await loadFavTemplates();
+    toast(isFav?'Шаблон убран из избранного':'Шаблон добавлен в избранное','success');
+    showPage('templates');
+  }catch(e){toast(e.message,'error')}
+}
+
+// ============ RELATED SUGGEST ============
+async function showRelatedSuggest(docId){
+  try{
+    var data=await api('/api/documents/'+docId+'/related-suggest');
+    var items=data.suggestions||[];
+    if(!items.length){toast('Похожие документы не найдены','info');return}
+    var rows=items.map(function(d){return'<div style="padding:.5rem 0;border-bottom:1px solid var(--border);cursor:pointer" onclick="this.closest(\'.modal-overlay\').remove();showPage(\'detail\','+d.id+')"><b>'+esc(d.number||'#'+d.id)+'</b> '+esc(d.title)+' <span style="color:var(--text-secondary)">'+esc(DOC_TYPES[d.doc_type]||d.doc_type)+'</span></div>'}).join('');
+    var html='<div class="modal-overlay" onclick="if(event.target===this)this.remove()"><div class="modal-card" style="max-width:500px"><div class="modal-header"><h3>&#128279; Похожие документы</h3><button class="modal-close" onclick="this.closest(\'.modal-overlay\').remove()">&times;</button></div><div class="modal-body">'+rows+'</div></div></div>';
+    document.getElementById('pageContent').insertAdjacentHTML('beforeend',html);
+  }catch(e){toast(e.message,'error')}
 }
 
 // ============ SERVICE WORKER (PWA) ============

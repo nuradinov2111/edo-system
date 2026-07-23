@@ -348,6 +348,18 @@ class PinnedDoc(Base):
     document = relationship("Document")
 
 
+class FavoriteTemplate(Base):
+    __tablename__ = "favorite_templates"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    template_id = Column(Integer, ForeignKey("document_templates.id", ondelete="CASCADE"), nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+    user = relationship("User")
+    template = relationship("DocumentTemplate")
+
+
 class NomenclatureCase(Base):
     __tablename__ = "nomenclature_cases"
 

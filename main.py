@@ -11,7 +11,7 @@ from models import (
     History, Version, Attachment, ApprovalRoute, doc_tags, doc_related, Task, Resolution,
     AuditLog, DocumentTemplate, NomenclatureCase,
     Favorite, DocumentView, Delegation, DocumentSignature,
-    Reminder, ControlledDoc, PinnedDoc,
+    Reminder, ControlledDoc, PinnedDoc, FavoriteTemplate,
 )
 from schemas import (
     UserRegister, UserLogin, UserOut, UserOutPublic, Token, UserCreate, DeputySet,
@@ -281,7 +281,7 @@ def run_migrations(eng):
     # Ensure new tables exist
     for table_name in ["audit_log", "document_templates", "nomenclature_cases",
                         "favorites", "document_views", "delegations", "document_signatures",
-                        "reminders", "controlled_docs", "pinned_docs"]:
+                        "reminders", "controlled_docs", "pinned_docs", "favorite_templates"]:
         if table_name not in existing_tables:
             Base.metadata.create_all(bind=eng, tables=[Base.metadata.tables[table_name]])
 
@@ -4173,6 +4173,259 @@ def compare_documents(id1: int, id2: int, db: Session = Depends(get_db), user: U
                  "status": doc2.status, "doc_type": doc2.doc_type},
         "diff": diff_lines,
     }
+
+
+# ============ ADVANCED SEARCH ============
+
+@app.get("/api/search/advanced")
+def advanced_search(
+    q: str = "",
+    doc_type: str = "",
+    status: str = "",
+    author_id: int = 0,
+    priority: str = "",
+    date_from: str = "",
+    date_to: str = "",
+    tag_id: int = 0,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    query = db.query(Document).filter(Document.deleted == False)
+    if q:
+        pattern = f"%{q}%"
+        query = query.filter(
+            (Document.title.ilike(pattern)) | (Document.content.ilike(pattern)) |
+            (Document.description.ilike(pattern)) | (Document.number.ilike(pattern))
+        )
+    if doc_type:
+        query = query.filter(Document.doc_type == doc_type)
+    if status:
+        query = query.filter(Document.status == status)
+    if author_id:
+        query = query.filter(Document.author_id == author_id)
+    if priority:
+        query = query.filter(Document.priority == priority)
+    if date_from:
+        try:
+            df = datetime.strptime(date_from, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+            query = query.filter(Document.created_at >= df)
+        except ValueError:
+            pass
+    if date_to:
+        try:
+            dt = datetime.strptime(date_to, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+            from datetime import timedelta
+            query = query.filter(Document.created_at < dt + timedelta(days=1))
+        except ValueError:
+            pass
+    if tag_id:
+        query = query.join(doc_tags).filter(doc_tags.c.tag_id == tag_id)
+    docs = query.order_by(Document.created_at.desc()).limit(100).all()
+    results = []
+    for d in docs:
+        author = db.query(User).filter(User.id == d.author_id).first()
+        results.append({
+            "id": d.id, "number": d.number, "title": d.title,
+            "doc_type": d.doc_type, "status": d.status, "priority": d.priority,
+            "author_name": author.name if author else "",
+            "created_at": d.created_at.isoformat() if d.created_at else "",
+        })
+    return {"count": len(results), "items": results}
+
+
+# ============ USER STATS (ADMIN) ============
+
+@app.get("/api/users/{user_id}/stats")
+def user_stats(user_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    if user.role != "admin":
+        raise HTTPException(403, "Только для администраторов")
+    from sqlalchemy import func
+    target = db.query(User).filter(User.id == user_id).first()
+    if not target:
+        raise HTTPException(404, "Пользователь не найден")
+    total_docs = db.query(func.count(Document.id)).filter(
+        Document.author_id == user_id, Document.deleted == False
+    ).scalar()
+    by_status = {}
+    for st in ["draft", "pending", "approved", "rejected", "archived"]:
+        by_status[st] = db.query(func.count(Document.id)).filter(
+            Document.author_id == user_id, Document.deleted == False, Document.status == st
+        ).scalar()
+    approvals_done = db.query(func.count(Approval.id)).filter(
+        Approval.user_id == user_id, Approval.status.in_(["approved", "rejected"])
+    ).scalar()
+    approvals_pending = db.query(func.count(Approval.id)).filter(
+        Approval.user_id == user_id, Approval.status == "pending"
+    ).scalar()
+    tasks_total = db.query(func.count(Task.id)).filter(Task.assignee_id == user_id).scalar()
+    tasks_done = db.query(func.count(Task.id)).filter(
+        Task.assignee_id == user_id, Task.status == "completed"
+    ).scalar()
+    comments_count = db.query(func.count(Comment.id)).filter(Comment.user_id == user_id).scalar()
+    return {
+        "user_id": user_id, "user_name": target.name, "department": target.department,
+        "total_docs": total_docs, "by_status": by_status,
+        "approvals_done": approvals_done, "approvals_pending": approvals_pending,
+        "tasks_total": tasks_total, "tasks_done": tasks_done,
+        "comments_count": comments_count,
+    }
+
+
+# ============ BULK REASSIGN ============
+
+@app.post("/api/documents/bulk-reassign")
+def bulk_reassign(data: dict, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    if user.role != "admin":
+        raise HTTPException(403, "Только для администраторов")
+    doc_ids = data.get("doc_ids", [])
+    new_author_id = data.get("new_author_id", 0)
+    if not doc_ids or not new_author_id:
+        raise HTTPException(400, "Укажите документы и нового автора")
+    target = db.query(User).filter(User.id == new_author_id).first()
+    if not target:
+        raise HTTPException(404, "Пользователь не найден")
+    affected = 0
+    for did in doc_ids:
+        doc = db.query(Document).filter(Document.id == did, Document.deleted == False).first()
+        if doc:
+            doc.author_id = new_author_id
+            affected += 1
+    db.commit()
+    return {"ok": True, "affected": affected, "new_author": target.name}
+
+
+# ============ HISTORY EXPORT ============
+
+@app.get("/api/documents/{doc_id}/history/export")
+def export_history(doc_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    doc = db.query(Document).filter(Document.id == doc_id, Document.deleted == False).first()
+    if not doc:
+        raise HTTPException(404, "Документ не найден")
+    history = db.query(History).filter(History.document_id == doc_id).order_by(History.created_at).all()
+    comments = db.query(Comment).filter(Comment.document_id == doc_id).order_by(Comment.created_at).all()
+    approvals = db.query(Approval).filter(Approval.document_id == doc_id).all()
+    text = f"История документа: {doc.title}\n"
+    text += f"Номер: {doc.number or doc.id}\n"
+    text += f"{'=' * 50}\n\n"
+    text += "--- Действия ---\n"
+    for h in history:
+        dt = h.created_at.strftime("%d.%m.%Y %H:%M") if h.created_at else ""
+        text += f"  [{dt}] {h.user_name}: {h.text}\n"
+    text += f"\n--- Согласования ---\n"
+    for a in approvals:
+        u = db.query(User).filter(User.id == a.user_id).first()
+        dt = a.decided_at.strftime("%d.%m.%Y %H:%M") if a.decided_at else "ожидает"
+        text += f"  {u.name if u else '?'}: {a.status} ({dt})"
+        if a.comment:
+            text += f" — {a.comment}"
+        text += "\n"
+    text += f"\n--- Комментарии ---\n"
+    for c in comments:
+        u = db.query(User).filter(User.id == c.user_id).first()
+        dt = c.created_at.strftime("%d.%m.%Y %H:%M") if c.created_at else ""
+        text += f"  [{dt}] {u.name if u else '?'}: {c.text}\n"
+    from fastapi.responses import Response
+    return Response(
+        content=text.encode("utf-8"),
+        media_type="text/plain; charset=utf-8",
+        headers={"Content-Disposition": f"attachment; filename=history-{doc_id}.txt"},
+    )
+
+
+# ============ UNREAD DOCUMENTS ============
+
+@app.get("/api/documents/unread")
+def unread_documents(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    viewed_ids = [v.document_id for v in db.query(DocumentView.document_id).filter(
+        DocumentView.user_id == user.id
+    ).all()]
+    docs = db.query(Document).filter(
+        Document.deleted == False,
+        Document.id.notin_(viewed_ids) if viewed_ids else True,
+    ).order_by(Document.created_at.desc()).limit(50).all()
+    results = []
+    for d in docs:
+        author = db.query(User).filter(User.id == d.author_id).first()
+        results.append({
+            "id": d.id, "number": d.number, "title": d.title,
+            "doc_type": d.doc_type, "status": d.status,
+            "author_name": author.name if author else "",
+            "created_at": d.created_at.isoformat() if d.created_at else "",
+        })
+    return {"count": len(results), "items": results}
+
+
+# ============ FAVORITE TEMPLATES ============
+
+@app.post("/api/templates/{tmpl_id}/favorite")
+def add_favorite_template(tmpl_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    tmpl = db.query(DocumentTemplate).filter(DocumentTemplate.id == tmpl_id).first()
+    if not tmpl:
+        raise HTTPException(404, "Шаблон не найден")
+    existing = db.query(FavoriteTemplate).filter(
+        FavoriteTemplate.user_id == user.id, FavoriteTemplate.template_id == tmpl_id
+    ).first()
+    if existing:
+        return {"ok": True, "favorite": True}
+    db.add(FavoriteTemplate(user_id=user.id, template_id=tmpl_id))
+    db.commit()
+    return {"ok": True, "favorite": True}
+
+
+@app.delete("/api/templates/{tmpl_id}/favorite")
+def remove_favorite_template(tmpl_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    fav = db.query(FavoriteTemplate).filter(
+        FavoriteTemplate.user_id == user.id, FavoriteTemplate.template_id == tmpl_id
+    ).first()
+    if fav:
+        db.delete(fav)
+        db.commit()
+    return {"ok": True, "favorite": False}
+
+
+@app.get("/api/templates/favorites")
+def list_favorite_templates(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    favs = db.query(FavoriteTemplate).filter(FavoriteTemplate.user_id == user.id).all()
+    return [f.template_id for f in favs]
+
+
+# ============ RELATED DOCUMENTS SUGGEST ============
+
+@app.get("/api/documents/{doc_id}/related-suggest")
+def related_suggest(doc_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    doc = db.query(Document).filter(Document.id == doc_id, Document.deleted == False).first()
+    if not doc:
+        raise HTTPException(404, "Документ не найден")
+    tag_ids = [t.id for t in doc.tags]
+    already_related = [r.id for r in doc.related_docs]
+    candidates = set()
+    # By same tags
+    if tag_ids:
+        tagged = db.query(doc_tags.c.document_id).filter(
+            doc_tags.c.tag_id.in_(tag_ids),
+            doc_tags.c.document_id != doc_id,
+        ).all()
+        candidates.update(t[0] for t in tagged)
+    # By same type and recent
+    same_type = db.query(Document.id).filter(
+        Document.doc_type == doc.doc_type,
+        Document.deleted == False,
+        Document.id != doc_id,
+    ).order_by(Document.created_at.desc()).limit(10).all()
+    candidates.update(t[0] for t in same_type)
+    # Remove already related
+    candidates -= set(already_related)
+    candidates -= {doc_id}
+    # Fetch details
+    results = []
+    for cid in list(candidates)[:15]:
+        c = db.query(Document).filter(Document.id == cid, Document.deleted == False).first()
+        if c:
+            results.append({
+                "id": c.id, "number": c.number, "title": c.title,
+                "doc_type": c.doc_type, "status": c.status,
+            })
+    return {"suggestions": results}
 
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
