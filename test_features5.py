@@ -130,7 +130,7 @@ time.sleep(0.5)
 # =================== 5. UNREAD DOCUMENTS ===================
 print('\n--- Unread Documents ---')
 
-unread = api('/api/documents/unread', headers=AUTH)
+unread = api('/api/unread-docs', headers=AUTH)
 test('Unread docs', isinstance(unread, dict) and 'count' in unread, f"count={unread.get('count',0)}")
 test('Unread has items', isinstance(unread.get('items'), list))
 time.sleep(0.5)

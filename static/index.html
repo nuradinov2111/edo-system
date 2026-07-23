@@ -1724,7 +1724,7 @@ function showShortcutsHelp(){
 // ============ UNREAD DOCUMENTS ============
 async function renderUnread(el){
   try{
-    var data=await api('/api/documents/unread');
+    var data=await api('/api/unread-docs');
     var items=data.items||[];
     var rows=items.map(function(d){return'<tr style="cursor:pointer" onclick="showPage(\'detail\','+d.id+')"><td>'+esc(d.number||'#'+d.id)+'</td><td style="font-weight:600">'+esc(d.title)+'</td><td>'+esc(DOC_TYPES[d.doc_type]||d.doc_type)+'</td><td>'+statusBadge(d.status)+'</td><td>'+esc(d.author_name)+'</td><td>'+formatDate(d.created_at)+'</td></tr>'}).join('');
     el.innerHTML='<div class="page-header"><h1>&#128172; Непрочитанные документы</h1><span class="badge">'+data.count+'</span></div>'+

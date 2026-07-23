@@ -4334,7 +4334,7 @@ def export_history(doc_id: int, db: Session = Depends(get_db), user: User = Depe
 
 # ============ UNREAD DOCUMENTS ============
 
-@app.get("/api/documents/unread")
+@app.get("/api/unread-docs")
 def unread_documents(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     viewed_ids = [v.document_id for v in db.query(DocumentView.document_id).filter(
         DocumentView.user_id == user.id
