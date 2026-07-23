@@ -429,6 +429,35 @@ def create_user(data: UserCreate, db: Session = Depends(get_db), user: User = De
     return UserOut.model_validate(new_user)
 
 
+@app.delete("/api/users/{user_id}")
+def delete_user(user_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    if user.role != "admin":
+        raise HTTPException(403, "Только для администраторов")
+    if user_id == user.id:
+        raise HTTPException(400, "Нельзя удалить себя")
+    target = db.query(User).filter(User.id == user_id).first()
+    if not target:
+        raise HTTPException(404, "Пользователь не найден")
+    db.delete(target)
+    db.commit()
+    return {"ok": True, "deleted": user_id}
+
+
+@app.put("/api/users/{user_id}/reset-password")
+def reset_password(user_id: int, data: dict, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    if user.role != "admin":
+        raise HTTPException(403, "Только для администраторов")
+    target = db.query(User).filter(User.id == user_id).first()
+    if not target:
+        raise HTTPException(404, "Пользователь не найден")
+    new_pw = data.get("password", "")
+    if len(new_pw) < 4:
+        raise HTTPException(400, "Пароль минимум 4 символа")
+    target.password_hash = hash_password(new_pw)
+    db.commit()
+    return {"ok": True, "user_id": user_id}
+
+
 @app.put("/api/users/{user_id}/deputy", response_model=UserOut)
 def set_deputy(user_id: int, data: DeputySet, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     if user.id != user_id and user.role != "admin":
