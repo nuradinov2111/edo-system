@@ -298,7 +298,7 @@ def _renumber_correspondence():
     """Перенумеровать входящие и исходящие документы: 1, 2, 3..."""
     db = SessionLocal()
     try:
-        for types in [INCOMING_TYPES, OUTGOING_TYPES]:
+        for types in [INCOMING_TYPES, OUTGOING_TYPES, ORDER_TYPES]:
             docs = db.query(Document).filter(
                 Document.doc_type.in_(types)
             ).order_by(Document.created_at).all()
@@ -562,6 +562,10 @@ OUTGOING_TYPES = [
     "outgoing_invoice_tax", "outgoing_notification", "outgoing_request",
     "outgoing_reconciliation", "outgoing_contract",
 ]
+ORDER_TYPES = [
+    "order_main", "order_vacation", "order_hire", "order_fire",
+    "order_transfer", "order_bonus", "order_trip", "order_other",
+]
 
 def gen_number(db: Session, doc_type: str) -> str:
     from sqlalchemy import func
@@ -577,6 +581,13 @@ def gen_number(db: Session, doc_type: str) -> str:
         count = db.query(func.count(Document.id)).filter(Document.doc_type.in_(OUTGOING_TYPES)).scalar() + 1
         number = str(count)
         while db.query(Document).filter(Document.number == number, Document.doc_type.in_(OUTGOING_TYPES)).first():
+            count += 1
+            number = str(count)
+        return number
+    if doc_type in ORDER_TYPES:
+        count = db.query(func.count(Document.id)).filter(Document.doc_type.in_(ORDER_TYPES)).scalar() + 1
+        number = str(count)
+        while db.query(Document).filter(Document.number == number, Document.doc_type.in_(ORDER_TYPES)).first():
             count += 1
             number = str(count)
         return number
@@ -2367,8 +2378,13 @@ def get_registration_journal(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """Журнал регистрации входящих/исходящих документов."""
-    types = INCOMING_TYPES if direction == "incoming" else OUTGOING_TYPES
+    """Журнал регистрации входящих/исходящих/приказов."""
+    if direction == "incoming":
+        types = INCOMING_TYPES
+    elif direction == "orders":
+        types = ORDER_TYPES
+    else:
+        types = OUTGOING_TYPES
     query = db.query(Document).options(
         joinedload(Document.author_user),
         joinedload(Document.approvals).joinedload(Approval.user),
