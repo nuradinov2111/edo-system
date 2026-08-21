@@ -548,6 +548,9 @@ TYPE_PREFIX = {
     "outgoing_request":"ИСХ-ТР","outgoing_reconciliation":"ИСХ-АС",
     "outgoing_contract":"ИСХ-ДОГ",
     "other":"ДОК",
+    "order_main":"ПР","order_vacation":"ПР-ОТП","order_hire":"ПР-ПРМ",
+    "order_fire":"ПР-УВ","order_transfer":"ПР-ПЕР","order_bonus":"ПР-ПРМ",
+    "order_trip":"ПР-КОМ","order_other":"ПР-ПР",
 }
 
 VALID_DOC_TYPES = set(TYPE_PREFIX.keys())
