@@ -1,4 +1,4 @@
-const CACHE_NAME = 'edo-v3';
+const CACHE_NAME = 'edo-v4';
 const STATIC_ASSETS = ['/', '/static/index.html'];
 
 self.addEventListener('install', event => {
