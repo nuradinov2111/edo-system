@@ -265,6 +265,16 @@ async def lifespan(application):
 
 app = FastAPI(title="ЭДО API", lifespan=lifespan)
 
+from fastapi.middleware.cors import CORSMiddleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        os.getenv("FRONTEND_URL", "https://edo-system.onrender.com"),
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 # --- Startup ---
@@ -343,13 +353,13 @@ def _seed_data():
 
     # Seed 3 demo users
     demo_users = [
-        {"login": "admedo", "name": "Администратор", "email": "admin@edo.com", "password": "admin123",
+        {"login": "admedo", "name": "Администратор", "email": "admin@edo.com", "password": "Adm!n2026Edo",
          "role": "admin", "department": "Руководство", "position": "Системный администратор", "color": "#2563eb"},
-        {"login": "manger", "name": "Менеджер Иванов", "email": "manager@edo.com", "password": "manager123",
+        {"login": "manger", "name": "Менеджер Иванов", "email": "manager@edo.com", "password": "Mngr!2026Edo",
          "role": "user", "department": "Управление", "position": "Менеджер проектов", "color": "#16a34a"},
-        {"login": "usredo", "name": "Сотрудник Петров", "email": "user@edo.com", "password": "user123",
+        {"login": "usredo", "name": "Сотрудник Петров", "email": "user@edo.com", "password": "User!2026Edo",
          "role": "user", "department": "Отдел разработки", "position": "Специалист", "color": "#7c3aed"},
-        {"login": "buhgal", "name": "Бухгалтер Смирнова", "email": "buh@edo.com", "password": "buh123",
+        {"login": "buhgal", "name": "Бухгалтер Смирнова", "email": "buh@edo.com", "password": "Buh!2026Edo",
          "role": "user", "department": "Бухгалтерия", "position": "Главный бухгалтер", "color": "#ea580c"},
     ]
     for u in demo_users:
@@ -364,6 +374,12 @@ def _seed_data():
         else:
             if not existing.login:
                 existing.login = u["login"]
+            # Update weak passwords to strong ones
+            if verify_password("admin123", existing.password_hash) or \
+               verify_password("manager123", existing.password_hash) or \
+               verify_password("user123", existing.password_hash) or \
+               verify_password("buh123", existing.password_hash):
+                existing.password_hash = hash_password(u["password"])
     db.commit()
 
     # Удалить старых тестовых пользователей без логина
@@ -3185,7 +3201,9 @@ def diff_versions(doc_id: int, v1: int = 0, v2: int = 0, db: Session = Depends(g
 
 @app.get("/api/kpi")
 def get_kpi(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    """Employee KPI statistics."""
+    """Employee KPI statistics (admin only)."""
+    if user.role != "admin":
+        raise HTTPException(403, "Только для администраторов")
     from sqlalchemy import func
     now = datetime.now(timezone.utc)
     results = []
@@ -4157,6 +4175,8 @@ def is_controlled(doc_id: int, db: Session = Depends(get_db), user: User = Depen
 
 @app.get("/api/department-stats")
 def department_stats(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    if user.role != "admin":
+        raise HTTPException(403, "Только для администраторов")
     from sqlalchemy import func
     users = db.query(User).all()
     departments = {}
@@ -4299,6 +4319,11 @@ def advanced_search(
     user: User = Depends(get_current_user),
 ):
     query = db.query(Document).filter(Document.deleted == False)
+    if user.role != "admin":
+        query = query.filter(
+            (Document.author_id == user.id) |
+            Document.id.in_(db.query(Approval.document_id).filter(Approval.user_id == user.id))
+        )
     if q:
         pattern = f"%{q}%"
         query = query.filter(
@@ -4448,10 +4473,15 @@ def unread_documents(db: Session = Depends(get_db), user: User = Depends(get_cur
     viewed_ids = [v.document_id for v in db.query(DocumentView.document_id).filter(
         DocumentView.user_id == user.id
     ).all()]
-    docs = db.query(Document).filter(
-        Document.deleted == False,
-        Document.id.notin_(viewed_ids) if viewed_ids else True,
-    ).order_by(Document.created_at.desc()).limit(50).all()
+    q = db.query(Document).filter(Document.deleted == False)
+    if viewed_ids:
+        q = q.filter(Document.id.notin_(viewed_ids))
+    if user.role != "admin":
+        q = q.filter(
+            (Document.author_id == user.id) |
+            Document.id.in_(db.query(Approval.document_id).filter(Approval.user_id == user.id))
+        )
+    docs = q.order_by(Document.created_at.desc()).limit(50).all()
     results = []
     for d in docs:
         author = db.query(User).filter(User.id == d.author_id).first()
