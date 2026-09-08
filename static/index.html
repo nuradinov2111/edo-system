@@ -437,7 +437,7 @@ async function loadPinned(){try{pinnedIds=await api('/api/pinned')}catch(e){pinn
 
 function updateUserUI(){if(!currentUser)return;document.getElementById('userName').textContent=currentUser.name;var statusMap={available:'Доступен',away:'Не в офисе',vacation:'В отпуске'};document.getElementById('userRole').innerHTML=(currentUser.role==='admin'?'Администратор':'Сотрудник')+' <span class="status-dot status-'+(currentUser.user_status||'available')+'" style="margin-left:4px"></span>';var av=document.getElementById('userAvatar');av.textContent=currentUser.name.charAt(0).toUpperCase();av.style.background=currentUser.color||'#2563eb';document.querySelectorAll('.admin-only').forEach(function(el){el.classList.toggle('hidden',currentUser.role!=='admin')});var isBuh=currentUser.role==='admin'||currentUser.department==='Бухгалтерия';document.querySelectorAll('.buh-only').forEach(function(el){el.classList.toggle('hidden',!isBuh)})}
 
-async function loadDocs(){try{documents=await api('/api/documents')}catch(e){documents=[]}}
+async function loadDocs(){try{documents=await api('/api/documents?limit=2000')}catch(e){documents=[]}}
 async function loadUsers(){try{allUsers=await api('/api/users')}catch(e){allUsers=[]}}
 async function loadTags(){try{allTags=await api('/api/tags')}catch(e){allTags=[]}}
 async function loadNotifs(){try{notifications=await api('/api/notifications');var unread=notifications.filter(function(n){return!n.read}).length;var badge=document.getElementById('notifBadge');if(unread>0){badge.textContent=unread;badge.classList.remove('hidden')}else{badge.classList.add('hidden')}}catch(e){notifications=[]}updateApprovalBadge()}

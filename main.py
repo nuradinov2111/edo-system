@@ -51,10 +51,30 @@ def _check_rate_limit(key: str):
         raise HTTPException(429, "Слишком много попыток. Подождите 5 минут.")
     _login_attempts[key].append(now)
 
+# Rate limiting by IP
+_ip_attempts: dict[str, list[float]] = defaultdict(list)
+_IP_MAX_ATTEMPTS = 50
+_IP_WINDOW = 300  # 5 minutes
+_ip_last_cleanup = 0.0
+
+def _check_ip_rate_limit(ip: str):
+    global _ip_last_cleanup
+    now = time.time()
+    if now - _ip_last_cleanup > _IP_WINDOW:
+        stale_keys = [k for k, v in _ip_attempts.items() if not v or now - v[-1] > _IP_WINDOW]
+        for k in stale_keys:
+            del _ip_attempts[k]
+        _ip_last_cleanup = now
+    _ip_attempts[ip] = [t for t in _ip_attempts[ip] if now - t < _IP_WINDOW]
+    if len(_ip_attempts[ip]) >= _IP_MAX_ATTEMPTS:
+        raise HTTPException(429, "Слишком много попыток с вашего IP. Подождите 5 минут.")
+    _ip_attempts[ip].append(now)
+
 
 def sanitize(text: str) -> str:
-    """Strip HTML tags to prevent stored XSS."""
-    return re.sub(r'<[^>]+>', '', text).strip()
+    """Escape HTML special characters to prevent stored XSS."""
+    import html
+    return html.escape(text).strip()
 
 
 UPLOAD_DIR = os.path.join(os.path.dirname(__file__), "uploads")
@@ -271,8 +291,11 @@ def run_migrations(eng):
             ("users", "notify_on_comment", "BOOLEAN DEFAULT TRUE"),
             ("users", "notify_on_task", "BOOLEAN DEFAULT TRUE"),
         ]
+        _ident_re = re.compile(r'^[A-Za-z_][A-Za-z0-9_]*$')
         for table, col, col_type in migrations:
             if table in existing_tables:
+                if not _ident_re.match(table) or not _ident_re.match(col):
+                    continue
                 cols = [c["name"] for c in insp.get_columns(table)]
                 if col not in cols:
                     conn.execute(text(f'ALTER TABLE {table} ADD COLUMN {col} {col_type}'))
@@ -383,6 +406,7 @@ def register(data: UserRegister, request: Request, db: Session = Depends(get_db)
 def login(data: UserLogin, request: Request, db: Session = Depends(get_db)):
     login_val = data.login.strip().lower()
     _check_rate_limit(login_val)
+    _check_ip_rate_limit(request.client.host if request.client else "unknown")
     user = db.query(User).filter(User.login == login_val).first()
     if not user or not verify_password(data.password, user.password_hash):
         raise HTTPException(401, "Неверный логин или пароль")
@@ -451,8 +475,8 @@ def reset_password(user_id: int, data: dict, db: Session = Depends(get_db), user
     if not target:
         raise HTTPException(404, "Пользователь не найден")
     new_pw = data.get("password", "")
-    if len(new_pw) < 4:
-        raise HTTPException(400, "Пароль минимум 4 символа")
+    if len(new_pw) < 8:
+        raise HTTPException(400, "Пароль минимум 8 символов")
     target.password_hash = hash_password(new_pw)
     db.commit()
     return {"ok": True, "user_id": user_id}
@@ -514,8 +538,8 @@ def update_profile(data: ProfileUpdate, db: Session = Depends(get_db), user: Use
 def change_password(data: PasswordChange, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     if not verify_password(data.old_password, user.password_hash):
         raise HTTPException(400, "Неверный текущий пароль")
-    if len(data.new_password) < 4:
-        raise HTTPException(400, "Пароль должен быть не менее 4 символов")
+    if len(data.new_password) < 8:
+        raise HTTPException(400, "Пароль должен быть не менее 8 символов")
     user.password_hash = hash_password(data.new_password)
     db.commit()
     return {"ok": True}
@@ -708,14 +732,23 @@ def list_documents(include_deleted: bool = False, limit: int = 200, offset: int 
     if not include_deleted:
         q = q.filter(Document.deleted == False)
     if user.role != "admin":
-        q = q.filter(
-            (Document.author_id == user.id) |
-            Document.id.in_(
-                db.query(Approval.document_id).filter(Approval.user_id == user.id)
+        if user.department == "Бухгалтерия":
+            q = q.filter(
+                (Document.author_id == user.id) |
+                Document.id.in_(
+                    db.query(Approval.document_id).filter(Approval.user_id == user.id)
+                ) |
+                (Document.doc_type == "power_of_attorney")
             )
-        )
-    if limit > 500:
-        limit = 500
+        else:
+            q = q.filter(
+                (Document.author_id == user.id) |
+                Document.id.in_(
+                    db.query(Approval.document_id).filter(Approval.user_id == user.id)
+                )
+            )
+    if limit > 2000:
+        limit = 2000
     docs = q.order_by(Document.updated_at.desc()).offset(offset).limit(limit).all()
     return [doc_to_out(d) for d in docs]
 
@@ -2208,7 +2241,8 @@ def export_pdf(doc_id: int, db: Session = Depends(get_db), user: User = Depends(
         return FileResponse(tmp.name, filename=f'{d.number} {safe_title}.pdf', media_type='application/pdf',
                             background=BackgroundTask(os.unlink, tmp.name))
     except Exception:
-        return JSONResponse(status_code=500, content={"detail": f"PDF error: {traceback.format_exc()[-2000:]}"})
+        print(f"PDF error: {traceback.format_exc()}")
+        return JSONResponse(status_code=500, content={"detail": "Ошибка генерации PDF"})
 
 
 # ============ IMPORT (PDF / DOCX) ============
@@ -2511,9 +2545,10 @@ def delete_nomenclature(case_id: int, db: Session = Depends(get_db), user: User 
 @app.post("/api/documents/{doc_id}/assign-case")
 def assign_doc_to_case(doc_id: int, case_id: int = 0, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     """Привязать документ к делу номенклатуры."""
-    doc = db.query(Document).filter(Document.id == doc_id).first()
+    doc = db.query(Document).options(joinedload(Document.approvals)).filter(Document.id == doc_id).first()
     if not doc:
         raise HTTPException(404, "Документ не найден")
+    check_doc_access(doc, user, db)
     if case_id:
         case = db.query(NomenclatureCase).filter(NomenclatureCase.id == case_id).first()
         if not case:
@@ -2535,9 +2570,10 @@ def get_case_documents(case_id: int, db: Session = Depends(get_db), user: User =
 @app.get("/api/documents/{doc_id}/qr")
 def get_qr_code(doc_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     """Generate QR code for document URL as base64 PNG."""
-    doc = db.query(Document).filter(Document.id == doc_id).first()
+    doc = db.query(Document).options(joinedload(Document.approvals)).filter(Document.id == doc_id).first()
     if not doc:
         raise HTTPException(404, "Документ не найден")
+    check_doc_access(doc, user, db)
     try:
         import qrcode, io, base64
         from qrcode.constants import ERROR_CORRECT_M
@@ -2830,6 +2866,9 @@ def api_1c_create_document(request: Request, data: dict, db: Session = Depends(g
         deadline=data.get("deadline", ""),
         author_id=data.get("author_id", 1),
     )
+    # Validate author_id exists
+    if not db.query(User).filter(User.id == doc.author_id).first():
+        raise HTTPException(400, "Пользователь author_id не найден")
     db.add(doc)
     db.flush()
     add_history(db, doc, "1С", "Создан через 1С API")
@@ -3004,7 +3043,8 @@ def ai_chat(
             reply = re.sub(r'\s*\[FILL:\{.*?\}\]', '', reply, flags=re.DOTALL).strip()
         return {"reply": reply, "action": action, "fill": fill}
     except Exception as e:
-        raise HTTPException(500, f"Ошибка ИИ: {str(e)}")
+        print(f"AI error: {e}")
+        raise HTTPException(500, "Ошибка ИИ. Попробуйте позже.")
 
 
 @app.post("/api/ai/summarize")
@@ -3031,7 +3071,8 @@ def ai_summarize(
         )
         return {"summary": reply}
     except Exception as e:
-        raise HTTPException(500, f"Ошибка ИИ: {str(e)}")
+        print(f"AI error: {e}")
+        raise HTTPException(500, "Ошибка ИИ. Попробуйте позже.")
 
 
 @app.post("/api/ai/generate")
@@ -3053,7 +3094,8 @@ def ai_generate(
         reply = _ai_chat(system, [{"role": "user", "content": prompt}])
         return {"content": reply}
     except Exception as e:
-        raise HTTPException(500, f"Ошибка ИИ: {str(e)}")
+        print(f"AI error: {e}")
+        raise HTTPException(500, "Ошибка ИИ. Попробуйте позже.")
 
 
 # ============ BULK APPROVE ============
@@ -3280,6 +3322,19 @@ def create_webhook(data: dict, user: User = Depends(get_current_user)):
     events = data.get("events", ["all"])
     if not url:
         raise HTTPException(400, "URL обязателен")
+    # SSRF protection: block internal/private URLs
+    from urllib.parse import urlparse
+    import ipaddress
+    parsed = urlparse(url)
+    hostname = (parsed.hostname or "").lower()
+    if hostname in ("localhost", "127.0.0.1", "0.0.0.0", "::1", ""):
+        raise HTTPException(400, "URL на внутренние адреса запрещён")
+    try:
+        ip = ipaddress.ip_address(hostname)
+        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
+            raise HTTPException(400, "URL на внутренние адреса запрещён")
+    except ValueError:
+        pass  # hostname is not an IP, that's fine
     wh = {"id": len(_webhooks) + 1, "url": url, "events": events, "active": True}
     _webhooks.append(wh)
     return wh
@@ -3334,7 +3389,7 @@ def download_backup(db: Session = Depends(get_db), user: User = Depends(get_curr
                 rows = db.query(model).all()
                 buf = io.StringIO()
                 if rows:
-                    cols = [c.name for c in model.__table__.columns]
+                    cols = [c.name for c in model.__table__.columns if c.name != "password_hash"]
                     w = csv.writer(buf)
                     w.writerow(cols)
                     for row in rows:
@@ -3833,6 +3888,7 @@ def rollback_version(doc_id: int, version_id: int, db: Session = Depends(get_db)
 @app.get("/api/documents/{doc_id}/barcode")
 def get_barcode(doc_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     doc = load_doc(db, doc_id)
+    check_doc_access(doc, user, db)
     import io, base64
     from PIL import Image, ImageDraw, ImageFont
 
@@ -3980,9 +4036,10 @@ def batch_print(data: dict, db: Session = Depends(get_db), user: User = Depends(
         raise HTTPException(400, "Максимум 20 документов")
     results = []
     for did in doc_ids:
-        doc = db.query(Document).filter(Document.id == did, Document.deleted == False).first()
+        doc = db.query(Document).options(joinedload(Document.approvals)).filter(Document.id == did, Document.deleted == False).first()
         if not doc:
             continue
+        check_doc_access(doc, user, db)
         author = db.query(User).filter(User.id == doc.author_id).first()
         approvals = []
         for a in doc.approvals:
@@ -4136,9 +4193,10 @@ def export_docs_zip(data: dict, db: Session = Depends(get_db), user: User = Depe
     zip_buf = io.BytesIO()
     with zipfile.ZipFile(zip_buf, 'w', zipfile.ZIP_DEFLATED) as zf:
         for did in doc_ids:
-            doc = db.query(Document).filter(Document.id == did, Document.deleted == False).first()
+            doc = db.query(Document).options(joinedload(Document.approvals)).filter(Document.id == did, Document.deleted == False).first()
             if not doc:
                 continue
+            check_doc_access(doc, user, db)
             author = db.query(User).filter(User.id == doc.author_id).first()
             text = f"Документ: {doc.title}\n"
             text += f"Номер: {doc.number or doc.id}\n"
@@ -4196,10 +4254,12 @@ def list_pinned(db: Session = Depends(get_db), user: User = Depends(get_current_
 
 @app.get("/api/compare-docs")
 def compare_documents(id1: int, id2: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    doc1 = db.query(Document).filter(Document.id == id1, Document.deleted == False).first()
-    doc2 = db.query(Document).filter(Document.id == id2, Document.deleted == False).first()
+    doc1 = db.query(Document).options(joinedload(Document.approvals)).filter(Document.id == id1, Document.deleted == False).first()
+    doc2 = db.query(Document).options(joinedload(Document.approvals)).filter(Document.id == id2, Document.deleted == False).first()
     if not doc1 or not doc2:
         raise HTTPException(404, "Документ не найден")
+    check_doc_access(doc1, user, db)
+    check_doc_access(doc2, user, db)
     a1 = db.query(User).filter(User.id == doc1.author_id).first()
     a2 = db.query(User).filter(User.id == doc2.author_id).first()
     # Line-by-line diff of content
@@ -4346,9 +4406,10 @@ def bulk_reassign(data: dict, db: Session = Depends(get_db), user: User = Depend
 
 @app.get("/api/documents/{doc_id}/history/export")
 def export_history(doc_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    doc = db.query(Document).filter(Document.id == doc_id, Document.deleted == False).first()
+    doc = db.query(Document).options(joinedload(Document.approvals)).filter(Document.id == doc_id, Document.deleted == False).first()
     if not doc:
         raise HTTPException(404, "Документ не найден")
+    check_doc_access(doc, user, db)
     history = db.query(History).filter(History.document_id == doc_id).order_by(History.created_at).all()
     comments = db.query(Comment).filter(Comment.document_id == doc_id).order_by(Comment.created_at).all()
     approvals = db.query(Approval).filter(Approval.document_id == doc_id).all()
@@ -4441,9 +4502,10 @@ def list_favorite_templates(db: Session = Depends(get_db), user: User = Depends(
 
 @app.get("/api/documents/{doc_id}/related-suggest")
 def related_suggest(doc_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    doc = db.query(Document).filter(Document.id == doc_id, Document.deleted == False).first()
+    doc = db.query(Document).options(joinedload(Document.approvals)).filter(Document.id == doc_id, Document.deleted == False).first()
     if not doc:
         raise HTTPException(404, "Документ не найден")
+    check_doc_access(doc, user, db)
     tag_ids = [t.id for t in doc.tags]
     already_related = [r.id for r in doc.related_docs]
     candidates = set()
