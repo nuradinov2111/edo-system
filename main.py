@@ -757,9 +757,6 @@ def list_documents(include_deleted: bool = False, limit: int = 200, offset: int 
     q = db.query(Document).options(
         joinedload(Document.author_user),
         joinedload(Document.approvals).joinedload(Approval.user),
-        joinedload(Document.comments).joinedload(Comment.user),
-        joinedload(Document.history),
-        joinedload(Document.versions),
         joinedload(Document.attachments),
         joinedload(Document.tags),
         joinedload(Document.related_docs),
@@ -794,9 +791,6 @@ def list_trash(db: Session = Depends(get_db), user: User = Depends(get_current_u
     q = db.query(Document).options(
         joinedload(Document.author_user),
         joinedload(Document.approvals).joinedload(Approval.user),
-        joinedload(Document.comments).joinedload(Comment.user),
-        joinedload(Document.history),
-        joinedload(Document.versions),
         joinedload(Document.attachments),
         joinedload(Document.tags),
         joinedload(Document.related_docs),
@@ -1470,51 +1464,69 @@ def delete_task(task_id: int, db: Session = Depends(get_db), user: User = Depend
 
 # ============ DASHBOARD ============
 
+def _user_doc_filter(user):
+    """Subquery for doc IDs visible to user."""
+    if user.role == "admin":
+        return None
+    return (Document.author_id == user.id) | Document.id.in_(
+        db.query(Approval.document_id).filter(Approval.user_id == user.id)
+    )
+
+
 @app.get("/api/dashboard")
 def get_dashboard(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     from sqlalchemy import func
+    now = datetime.now(timezone.utc)
 
-    # All docs visible to user
-    q = db.query(Document).filter(Document.deleted == False)
+    # Base filter for visible docs
+    base = db.query(Document).filter(Document.deleted == False)
     if user.role != "admin":
-        q = q.filter(
+        base = base.filter(
             (Document.author_id == user.id) |
             Document.id.in_(db.query(Approval.document_id).filter(Approval.user_id == user.id))
         )
-    docs = q.all()
 
-    total = len(docs)
-    by_status = {}
-    for d in docs:
-        by_status[d.status] = by_status.get(d.status, 0) + 1
-    by_type = {}
-    for d in docs:
-        by_type[d.doc_type] = by_type.get(d.doc_type, 0) + 1
+    # Aggregated counts via SQL GROUP BY (not loading all docs)
+    total = base.count()
 
-    # Pending approvals for this user
-    pending_approvals = []
-    for d in docs:
-        if d.status == "pending":
-            for a in d.approvals:
-                if a.user_id == user.id and a.status == "pending":
-                    pending_approvals.append({"doc_id": d.id, "title": d.title, "author": d.author_user.name if d.author_user else "", "created_at": str(d.created_at)})
-                    break
+    by_status = dict(
+        base.with_entities(Document.status, func.count(Document.id)).group_by(Document.status).all()
+    )
+    by_type = dict(
+        base.with_entities(Document.doc_type, func.count(Document.id)).group_by(Document.doc_type).all()
+    )
 
-    # Overdue docs
-    now = datetime.now(timezone.utc)
+    # Pending approvals for this user (join, no full scan)
+    pending_rows = db.query(Document.id, Document.title, User.name, Document.created_at).join(
+        Approval, Approval.document_id == Document.id
+    ).outerjoin(User, User.id == Document.author_id).filter(
+        Document.deleted == False, Document.status == "pending",
+        Approval.user_id == user.id, Approval.status == "pending",
+    ).limit(20).all()
+    pending_approvals = [
+        {"doc_id": r[0], "title": r[1], "author": r[2] or "", "created_at": str(r[3])}
+        for r in pending_rows
+    ]
+
+    # Overdue docs (only those with deadline, lightweight query)
     overdue = []
-    for d in docs:
-        if d.deadline and d.status not in ("archived", "approved", "resolved"):
-            try:
-                dl = datetime.fromisoformat(d.deadline.replace("Z", "+00:00")) if "T" in d.deadline else datetime.strptime(d.deadline[:10], "%Y-%m-%d").replace(tzinfo=timezone.utc)
-                if dl < now:
-                    overdue.append({"doc_id": d.id, "title": d.title, "deadline": d.deadline})
-            except (ValueError, TypeError):
-                pass
+    overdue_q = base.filter(
+        Document.deadline != None, Document.deadline != "",
+        Document.status.notin_(["archived", "approved", "resolved"]),
+    ).with_entities(Document.id, Document.title, Document.deadline).all()
+    for doc_id, title, deadline in overdue_q:
+        try:
+            dl = datetime.fromisoformat(deadline.replace("Z", "+00:00")) if "T" in deadline else datetime.strptime(deadline[:10], "%Y-%m-%d").replace(tzinfo=timezone.utc)
+            if dl < now:
+                overdue.append({"doc_id": doc_id, "title": title, "deadline": deadline})
+        except (ValueError, TypeError):
+            pass
 
-    # Recent docs
-    recent = sorted(docs, key=lambda x: x.created_at or datetime.min.replace(tzinfo=timezone.utc), reverse=True)[:5]
-    recent_out = [{"id": d.id, "number": d.number, "title": d.title, "status": d.status, "created_at": str(d.created_at)} for d in recent]
+    # Recent docs (limit 5, lightweight)
+    recent_rows = base.with_entities(
+        Document.id, Document.number, Document.title, Document.status, Document.created_at
+    ).order_by(Document.created_at.desc()).limit(5).all()
+    recent_out = [{"id": r[0], "number": r[1], "title": r[2], "status": r[3], "created_at": str(r[4])} for r in recent_rows]
 
     # My tasks
     my_tasks = db.query(Task).filter(
@@ -1522,17 +1534,17 @@ def get_dashboard(db: Session = Depends(get_db), user: User = Depends(get_curren
     ).order_by(Task.created_at.desc()).limit(5).all()
     tasks_out = [{"id": t.id, "title": t.title, "status": t.status, "deadline": t.deadline, "priority": t.priority} for t in my_tasks]
 
-    # Overdue tasks
+    # Overdue tasks (lightweight)
     overdue_tasks = []
-    all_my_tasks = db.query(Task).filter(
+    task_rows = db.query(Task.id, Task.title, Task.deadline, Task.priority).filter(
         Task.assignee_id == user.id, Task.status.in_(["pending", "in_progress"]),
-        Task.deadline != "",
+        Task.deadline != None, Task.deadline != "",
     ).all()
-    for t in all_my_tasks:
+    for tid, ttitle, tdeadline, tpriority in task_rows:
         try:
-            dl = datetime.fromisoformat(t.deadline.replace("Z", "+00:00")) if "T" in t.deadline else datetime.strptime(t.deadline[:10], "%Y-%m-%d").replace(tzinfo=timezone.utc)
+            dl = datetime.fromisoformat(tdeadline.replace("Z", "+00:00")) if "T" in tdeadline else datetime.strptime(tdeadline[:10], "%Y-%m-%d").replace(tzinfo=timezone.utc)
             if dl < now:
-                overdue_tasks.append({"id": t.id, "title": t.title, "deadline": t.deadline, "priority": t.priority})
+                overdue_tasks.append({"id": tid, "title": ttitle, "deadline": tdeadline, "priority": tpriority})
         except (ValueError, TypeError):
             pass
 
@@ -3195,59 +3207,61 @@ def get_kpi(db: Session = Depends(get_db), user: User = Depends(get_current_user
         raise HTTPException(403, "Только для администраторов")
     from sqlalchemy import func
     now = datetime.now(timezone.utc)
-    results = []
+
     users_list = db.query(User).all()
+
+    # Batch: docs per user
+    docs_counts = dict(db.query(Document.author_id, func.count(Document.id)).filter(
+        Document.deleted == False
+    ).group_by(Document.author_id).all())
+
+    # Batch: approvals done per user
+    approvals_counts = dict(db.query(Approval.user_id, func.count(Approval.id)).filter(
+        Approval.status.in_(["approved", "rejected"])
+    ).group_by(Approval.user_id).all())
+
+    # Batch: tasks done / total per user
+    tasks_done_counts = dict(db.query(Task.assignee_id, func.count(Task.id)).filter(
+        Task.status == "completed"
+    ).group_by(Task.assignee_id).all())
+    tasks_total_counts = dict(db.query(Task.assignee_id, func.count(Task.id)).group_by(Task.assignee_id).all())
+
+    # Batch: overdue tasks per user (load only active tasks with deadline)
+    active_tasks = db.query(Task.assignee_id, Task.deadline).filter(
+        Task.status.in_(["pending", "in_progress"]),
+        Task.deadline != None, Task.deadline != "",
+    ).all()
+    overdue_by_user = defaultdict(int)
+    for assignee_id, deadline in active_tasks:
+        try:
+            dl = datetime.strptime(deadline[:10], "%Y-%m-%d").replace(tzinfo=timezone.utc)
+            if dl < now:
+                overdue_by_user[assignee_id] += 1
+        except (ValueError, TypeError):
+            pass
+
+    # Batch: avg approval time per user (single join query)
+    avg_times = {}
+    avg_rows = db.query(
+        Approval.user_id,
+        func.avg(func.extract('epoch', Approval.decided_at) - func.extract('epoch', Document.created_at))
+    ).join(Document, Document.id == Approval.document_id).filter(
+        Approval.status == "approved", Approval.decided_at != None
+    ).group_by(Approval.user_id).all()
+    for uid, avg_secs in avg_rows:
+        avg_times[uid] = round((avg_secs or 0) / 3600, 1)
+
+    results = []
     for u in users_list:
-        # Documents created
-        docs_created = db.query(func.count(Document.id)).filter(
-            Document.author_id == u.id, Document.deleted == False
-        ).scalar()
-        # Approvals done
-        approvals_done = db.query(func.count(Approval.id)).filter(
-            Approval.user_id == u.id, Approval.status.in_(["approved", "rejected"])
-        ).scalar()
-        # Tasks completed
-        tasks_done = db.query(func.count(Task.id)).filter(
-            Task.assignee_id == u.id, Task.status == "completed"
-        ).scalar()
-        tasks_total = db.query(func.count(Task.id)).filter(
-            Task.assignee_id == u.id
-        ).scalar()
-        # Tasks overdue
-        tasks_overdue = 0
-        overdue_tasks = db.query(Task).filter(
-            Task.assignee_id == u.id, Task.status.in_(["pending", "in_progress"]),
-            Task.deadline != "",
-        ).all()
-        for t in overdue_tasks:
-            try:
-                dl = datetime.strptime(t.deadline[:10], "%Y-%m-%d").replace(tzinfo=timezone.utc)
-                if dl < now:
-                    tasks_overdue += 1
-            except (ValueError, TypeError):
-                pass
-        # Avg approval time
-        avg_time = 0
-        approved_apps = db.query(Approval).filter(
-            Approval.user_id == u.id, Approval.status == "approved",
-            Approval.decided_at != None
-        ).all()
-        if approved_apps:
-            total_hours = 0
-            count = 0
-            for a in approved_apps:
-                doc = db.query(Document).filter(Document.id == a.document_id).first()
-                if doc and doc.created_at and a.decided_at:
-                    diff = (a.decided_at - doc.created_at).total_seconds() / 3600
-                    total_hours += diff
-                    count += 1
-            avg_time = round(total_hours / count, 1) if count else 0
         results.append({
             "user_id": u.id, "name": u.name, "department": u.department or "",
             "position": u.position or "",
-            "docs_created": docs_created, "approvals_done": approvals_done,
-            "tasks_done": tasks_done, "tasks_total": tasks_total,
-            "tasks_overdue": tasks_overdue, "avg_approval_hours": avg_time,
+            "docs_created": docs_counts.get(u.id, 0),
+            "approvals_done": approvals_counts.get(u.id, 0),
+            "tasks_done": tasks_done_counts.get(u.id, 0),
+            "tasks_total": tasks_total_counts.get(u.id, 0),
+            "tasks_overdue": overdue_by_user.get(u.id, 0),
+            "avg_approval_hours": avg_times.get(u.id, 0),
         })
     return results
 
@@ -3552,18 +3566,22 @@ def remove_favorite(doc_id: int, db: Session = Depends(get_db), user: User = Dep
 
 @app.get("/api/favorites")
 def list_favorites(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    favs = db.query(Favorite).filter(Favorite.user_id == user.id).order_by(Favorite.created_at.desc()).all()
-    result = []
-    for f in favs:
-        doc = db.query(Document).filter(Document.id == f.document_id, Document.deleted == False).first()
-        if doc:
-            result.append({
-                "id": doc.id, "number": doc.number, "title": doc.title,
-                "doc_type": doc.doc_type, "status": doc.status, "priority": doc.priority,
-                "created_at": doc.created_at.isoformat() if doc.created_at else "",
-                "favorited_at": f.created_at.isoformat() if f.created_at else "",
-            })
-    return result
+    rows = (
+        db.query(Favorite, Document)
+        .join(Document, Document.id == Favorite.document_id)
+        .filter(Favorite.user_id == user.id, Document.deleted == False)
+        .order_by(Favorite.created_at.desc())
+        .all()
+    )
+    return [
+        {
+            "id": doc.id, "number": doc.number, "title": doc.title,
+            "doc_type": doc.doc_type, "status": doc.status, "priority": doc.priority,
+            "created_at": doc.created_at.isoformat() if doc.created_at else "",
+            "favorited_at": fav.created_at.isoformat() if fav.created_at else "",
+        }
+        for fav, doc in rows
+    ]
 
 
 @app.get("/api/documents/{doc_id}/is-favorite")
@@ -4173,17 +4191,21 @@ def remove_from_control(doc_id: int, db: Session = Depends(get_db), user: User =
 
 @app.get("/api/control")
 def list_controlled(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    ctrls = db.query(ControlledDoc).filter(ControlledDoc.user_id == user.id).order_by(ControlledDoc.created_at.desc()).all()
-    result = []
-    for c in ctrls:
-        doc = db.query(Document).filter(Document.id == c.document_id, Document.deleted == False).first()
-        if doc:
-            result.append({
-                "id": doc.id, "number": doc.number, "title": doc.title,
-                "doc_type": doc.doc_type, "status": doc.status, "priority": doc.priority,
-                "note": c.note, "controlled_at": c.created_at.isoformat() if c.created_at else "",
-            })
-    return result
+    rows = (
+        db.query(ControlledDoc, Document)
+        .join(Document, Document.id == ControlledDoc.document_id)
+        .filter(ControlledDoc.user_id == user.id, Document.deleted == False)
+        .order_by(ControlledDoc.created_at.desc())
+        .all()
+    )
+    return [
+        {
+            "id": doc.id, "number": doc.number, "title": doc.title,
+            "doc_type": doc.doc_type, "status": doc.status, "priority": doc.priority,
+            "note": ctrl.note, "controlled_at": ctrl.created_at.isoformat() if ctrl.created_at else "",
+        }
+        for ctrl, doc in rows
+    ]
 
 
 @app.get("/api/documents/{doc_id}/is-controlled")
@@ -4198,27 +4220,54 @@ def is_controlled(doc_id: int, db: Session = Depends(get_db), user: User = Depen
 def department_stats(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     if user.role != "admin":
         raise HTTPException(403, "Только для администраторов")
-    from sqlalchemy import func
-    users = db.query(User).all()
-    departments = {}
-    for u in users:
-        dept = u.department or "Без отдела"
-        if dept not in departments:
-            departments[dept] = {"name": dept, "users": 0, "docs": 0, "approvals": 0, "tasks_done": 0, "tasks_total": 0}
-        departments[dept]["users"] += 1
-        departments[dept]["docs"] += db.query(func.count(Document.id)).filter(
-            Document.author_id == u.id, Document.deleted == False
-        ).scalar()
-        departments[dept]["approvals"] += db.query(func.count(Approval.id)).filter(
-            Approval.user_id == u.id, Approval.status.in_(["approved", "rejected"])
-        ).scalar()
-        departments[dept]["tasks_done"] += db.query(func.count(Task.id)).filter(
-            Task.assignee_id == u.id, Task.status == "completed"
-        ).scalar()
-        departments[dept]["tasks_total"] += db.query(func.count(Task.id)).filter(
-            Task.assignee_id == u.id
-        ).scalar()
-    return list(departments.values())
+    from sqlalchemy import func, case
+    # 1) Users per department
+    dept_users = dict(
+        db.query(
+            func.coalesce(User.department, "Без отдела"),
+            func.count(User.id),
+        ).group_by(func.coalesce(User.department, "Без отдела")).all()
+    )
+    # 2) Docs per department (via author)
+    dept_docs = dict(
+        db.query(
+            func.coalesce(User.department, "Без отдела"),
+            func.count(Document.id),
+        ).join(User, Document.author_id == User.id)
+        .filter(Document.deleted == False)
+        .group_by(func.coalesce(User.department, "Без отдела")).all()
+    )
+    # 3) Approvals per department
+    dept_approvals = dict(
+        db.query(
+            func.coalesce(User.department, "Без отдела"),
+            func.count(Approval.id),
+        ).join(User, Approval.user_id == User.id)
+        .filter(Approval.status.in_(["approved", "rejected"]))
+        .group_by(func.coalesce(User.department, "Без отдела")).all()
+    )
+    # 4) Tasks per department (total + done)
+    dept_tasks = {
+        row[0]: {"total": row[1], "done": row[2]}
+        for row in db.query(
+            func.coalesce(User.department, "Без отдела"),
+            func.count(Task.id),
+            func.sum(case((Task.status == "completed", 1), else_=0)),
+        ).join(User, Task.assignee_id == User.id)
+        .group_by(func.coalesce(User.department, "Без отдела")).all()
+    }
+    all_depts = set(dept_users) | set(dept_docs) | set(dept_approvals) | set(dept_tasks)
+    return [
+        {
+            "name": d,
+            "users": dept_users.get(d, 0),
+            "docs": dept_docs.get(d, 0),
+            "approvals": dept_approvals.get(d, 0),
+            "tasks_done": dept_tasks.get(d, {}).get("done", 0) or 0,
+            "tasks_total": dept_tasks.get(d, {}).get("total", 0),
+        }
+        for d in sorted(all_depts)
+    ]
 
 
 # ============ EXPORT SELECTED AS ZIP ============
