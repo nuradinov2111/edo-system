@@ -256,7 +256,6 @@ async def lifespan(application):
     run_migrations(engine)
     Base.metadata.create_all(bind=engine)
     _seed_data()
-    _renumber_correspondence()
     task = asyncio.create_task(_auto_approve_loop())
     task2 = asyncio.create_task(_deadline_reminder_loop())
     yield
@@ -478,7 +477,25 @@ def delete_user(user_id: int, db: Session = Depends(get_db), user: User = Depend
     target = db.query(User).filter(User.id == user_id).first()
     if not target:
         raise HTTPException(404, "Пользователь не найден")
+    # Check for documents owned by user
+    doc_count = db.query(Document).filter(Document.author_id == user_id).count()
+    if doc_count > 0:
+        raise HTTPException(400, f"Нельзя удалить: у пользователя {doc_count} документов. Сначала переназначьте их.")
+    # Clean up related records without CASCADE
+    db.query(AuditLog).filter(AuditLog.user_id == user_id).delete()
+    db.query(Favorite).filter(Favorite.user_id == user_id).delete()
+    db.query(DocumentView).filter(DocumentView.user_id == user_id).delete()
+    db.query(DocumentSignature).filter(DocumentSignature.user_id == user_id).delete()
+    db.query(Reminder).filter(Reminder.user_id == user_id).delete()
+    db.query(ControlledDoc).filter(ControlledDoc.user_id == user_id).delete()
+    db.query(PinnedDoc).filter(PinnedDoc.user_id == user_id).delete()
+    db.query(FavoriteTemplate).filter(FavoriteTemplate.user_id == user_id).delete()
+    db.query(Delegation).filter((Delegation.from_user_id == user_id) | (Delegation.to_user_id == user_id)).delete()
+    db.query(Task).filter((Task.author_id == user_id) | (Task.assignee_id == user_id)).delete()
+    # Clear deputy references pointing to this user
+    db.query(User).filter(User.deputy_id == user_id).update({"deputy_id": None})
     db.delete(target)
+    add_audit(db, user.id, user.name, "delete", "user", user_id, f"Удалён: {target.name}")
     db.commit()
     return {"ok": True, "deleted": user_id}
 
@@ -610,30 +627,33 @@ ORDER_TYPES = [
     "order_transfer", "order_bonus", "order_trip", "order_other",
 ]
 
+def _next_seq_number(db: Session, type_filter) -> str:
+    """Generate next sequential number for a group of doc types with collision check."""
+    from sqlalchemy import func
+    max_num = db.query(func.max(Document.number)).filter(
+        Document.doc_type.in_(type_filter)
+    ).scalar()
+    # Try to parse existing max as int, fallback to count
+    try:
+        count = int(max_num) + 1 if max_num else 1
+    except (ValueError, TypeError):
+        count = db.query(func.count(Document.id)).filter(Document.doc_type.in_(type_filter)).scalar() + 1
+    number = str(count)
+    while db.query(Document).filter(Document.number == number, Document.doc_type.in_(type_filter)).first():
+        count += 1
+        number = str(count)
+    return number
+
+
 def gen_number(db: Session, doc_type: str) -> str:
     from sqlalchemy import func
-    # Incoming/outgoing documents get simple sequential numbers: 1, 2, 3...
+    # Incoming/outgoing/order documents get simple sequential numbers: 1, 2, 3...
     if doc_type in INCOMING_TYPES:
-        count = db.query(func.count(Document.id)).filter(Document.doc_type.in_(INCOMING_TYPES)).scalar() + 1
-        number = str(count)
-        while db.query(Document).filter(Document.number == number, Document.doc_type.in_(INCOMING_TYPES)).first():
-            count += 1
-            number = str(count)
-        return number
+        return _next_seq_number(db, INCOMING_TYPES)
     if doc_type in OUTGOING_TYPES:
-        count = db.query(func.count(Document.id)).filter(Document.doc_type.in_(OUTGOING_TYPES)).scalar() + 1
-        number = str(count)
-        while db.query(Document).filter(Document.number == number, Document.doc_type.in_(OUTGOING_TYPES)).first():
-            count += 1
-            number = str(count)
-        return number
+        return _next_seq_number(db, OUTGOING_TYPES)
     if doc_type in ORDER_TYPES:
-        count = db.query(func.count(Document.id)).filter(Document.doc_type.in_(ORDER_TYPES)).scalar() + 1
-        number = str(count)
-        while db.query(Document).filter(Document.number == number, Document.doc_type.in_(ORDER_TYPES)).first():
-            count += 1
-            number = str(count)
-        return number
+        return _next_seq_number(db, ORDER_TYPES)
     # Other document types keep prefix-based numbering
     prefix = TYPE_PREFIX.get(doc_type, "ДОК")
     year = datetime.now().year
@@ -899,37 +919,6 @@ def search_correspondence(
         })
     total = query.count() if not offset else len(results)
     return {"results": results, "total": total}
-
-
-@app.post("/api/documents/bulk")
-def bulk_action(data: BulkAction, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    if not data.doc_ids:
-        raise HTTPException(400, "Не указаны документы")
-    if len(data.doc_ids) > 100:
-        raise HTTPException(400, "Максимум 100 документов за раз")
-    if data.action not in ("delete", "archive", "restore"):
-        raise HTTPException(400, "Неизвестное действие")
-    docs = db.query(Document).filter(Document.id.in_(data.doc_ids)).all()
-    processed = 0
-    for doc in docs:
-        if doc.author_id != user.id and user.role != "admin":
-            continue
-        if data.action == "delete":
-            doc.deleted = True
-            doc.updated_at = datetime.now(timezone.utc)
-            add_history(db, doc, user.name, "Перемещён в корзину (массово)")
-        elif data.action == "archive":
-            doc.status = "archived"
-            doc.updated_at = datetime.now(timezone.utc)
-            add_history(db, doc, user.name, "В архив (массово)")
-        elif data.action == "restore":
-            doc.deleted = False
-            doc.updated_at = datetime.now(timezone.utc)
-            add_history(db, doc, user.name, "Восстановлен (массово)")
-        processed += 1
-    add_audit(db, user.id, user.name, f"bulk_{data.action}", "document", details=f"{processed} документов")
-    db.commit()
-    return {"ok": True, "processed": processed}
 
 
 @app.get("/api/documents/search")
@@ -3275,19 +3264,33 @@ def export_ical(db: Session = Depends(get_db), user: User = Depends(get_current_
     ]
     # Document deadlines
     docs = db.query(Document).filter(
-        Document.deleted == False, Document.deadline != "",
+        Document.deleted == False,
+        Document.deadline != None, Document.deadline != "",
         (Document.author_id == user.id) |
         Document.id.in_(db.query(Approval.document_id).filter(Approval.user_id == user.id))
     ).all()
+    # Also include documents with created_at as events (if no deadline)
+    if not docs:
+        docs = db.query(Document).filter(
+            Document.deleted == False,
+            (Document.author_id == user.id) |
+            Document.id.in_(db.query(Approval.document_id).filter(Approval.user_id == user.id))
+        ).order_by(Document.created_at.desc()).limit(50).all()
     for d in docs:
         try:
-            dl = datetime.strptime(d.deadline[:10], "%Y-%m-%d")
+            if d.deadline and len(d.deadline) >= 10:
+                dl = datetime.strptime(d.deadline[:10], "%Y-%m-%d")
+            elif d.created_at:
+                dl = d.created_at
+            else:
+                continue
             dt_str = dl.strftime("%Y%m%d")
+            summary_prefix = "[Дедлайн]" if d.deadline else "[ЭДО]"
             lines.extend([
                 "BEGIN:VEVENT",
                 f"DTSTART;VALUE=DATE:{dt_str}",
                 f"DTEND;VALUE=DATE:{dt_str}",
-                f"SUMMARY:[ЭДО] {d.title}",
+                f"SUMMARY:{summary_prefix} {d.title}",
                 f"DESCRIPTION:Тип: {DOC_TYPE_LABELS.get(d.doc_type, d.doc_type)}\\nСтатус: {STATUS_LABELS.get(d.status, d.status)}",
                 f"UID:edo-doc-{d.id}@edo",
                 "END:VEVENT",
@@ -3322,14 +3325,27 @@ def export_ical(db: Session = Depends(get_db), user: User = Depends(get_current_
 
 # ============ WEBHOOK ============
 
-_webhooks: list[dict] = []  # In-memory webhook store
+_WEBHOOKS_FILE = os.path.join(os.path.dirname(__file__), "webhooks.json")
+
+
+def _load_webhooks() -> list[dict]:
+    try:
+        with open(_WEBHOOKS_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return []
+
+
+def _save_webhooks(webhooks: list[dict]):
+    with open(_WEBHOOKS_FILE, "w", encoding="utf-8") as f:
+        json.dump(webhooks, f, ensure_ascii=False, indent=2)
 
 
 @app.get("/api/webhooks")
 def list_webhooks(user: User = Depends(get_current_user)):
     if user.role != "admin":
         raise HTTPException(403, "Только администратор")
-    return _webhooks
+    return _load_webhooks()
 
 
 @app.post("/api/webhooks")
@@ -3353,8 +3369,11 @@ def create_webhook(data: dict, user: User = Depends(get_current_user)):
             raise HTTPException(400, "URL на внутренние адреса запрещён")
     except ValueError:
         pass  # hostname is not an IP, that's fine
-    wh = {"id": len(_webhooks) + 1, "url": url, "events": events, "active": True}
-    _webhooks.append(wh)
+    webhooks = _load_webhooks()
+    max_id = max((w["id"] for w in webhooks), default=0)
+    wh = {"id": max_id + 1, "url": url, "events": events, "active": True}
+    webhooks.append(wh)
+    _save_webhooks(webhooks)
     return wh
 
 
@@ -3362,8 +3381,8 @@ def create_webhook(data: dict, user: User = Depends(get_current_user)):
 def delete_webhook(wh_id: int, user: User = Depends(get_current_user)):
     if user.role != "admin":
         raise HTTPException(403, "Только администратор")
-    global _webhooks
-    _webhooks = [w for w in _webhooks if w["id"] != wh_id]
+    webhooks = [w for w in _load_webhooks() if w["id"] != wh_id]
+    _save_webhooks(webhooks)
     return {"ok": True}
 
 
@@ -3378,7 +3397,7 @@ def _fire_webhooks(event: str, payload: dict):
             urllib.request.urlopen(req, timeout=10)
         except Exception:
             pass
-    for wh in _webhooks:
+    for wh in _load_webhooks():
         if not wh.get("active"):
             continue
         if "all" in wh["events"] or event in wh["events"]:
@@ -3504,7 +3523,9 @@ def export_analytics_pdf(db: Session = Depends(get_db), user: User = Depends(get
 
     tmp = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
     pdf.output(tmp.name)
-    return FileResponse(tmp.name, filename="analytics.pdf", media_type="application/pdf")
+    from starlette.background import BackgroundTask
+    return FileResponse(tmp.name, filename="analytics.pdf", media_type="application/pdf",
+                        background=BackgroundTask(os.unlink, tmp.name))
 
 
 # ============ FAVORITES ============
@@ -4419,10 +4440,15 @@ def bulk_reassign(data: dict, db: Session = Depends(get_db), user: User = Depend
         raise HTTPException(404, "Пользователь не найден")
     affected = 0
     for did in doc_ids:
-        doc = db.query(Document).filter(Document.id == did, Document.deleted == False).first()
+        doc = db.query(Document).filter(Document.id == did).first()
         if doc:
+            old_author = db.query(User).filter(User.id == doc.author_id).first()
+            old_name = old_author.name if old_author else f"id={doc.author_id}"
             doc.author_id = new_author_id
+            doc.updated_at = datetime.now(timezone.utc)
+            add_history(db, doc, user.name, f"Переназначен: {old_name} → {target.name}")
             affected += 1
+    add_audit(db, user.id, user.name, "bulk_reassign", "document", details=f"{affected} документов → {target.name}")
     db.commit()
     return {"ok": True, "affected": affected, "new_author": target.name}
 

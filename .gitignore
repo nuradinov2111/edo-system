@@ -6,3 +6,4 @@ edo.db
 *.db
 venv/
 .venv/
+webhooks.json
