@@ -9,7 +9,7 @@
 <link rel="manifest" href="/static/manifest.json">
 <title>ЭДО - Электронный документооборот</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js" integrity="sha384-ncmHBRE86VDjlLMVJGsmjEOyWKIqT8vgYph4HA0SFySCJNb4xQ3BWgRoB7OFJLH" crossorigin="anonymous"></script>
 <style>
 :root{--primary:#2563eb;--primary-light:#3b82f6;--primary-dark:#1d4ed8;--success:#16a34a;--success-light:#22c55e;--warning:#d97706;--warning-light:#f59e0b;--danger:#dc2626;--danger-light:#ef4444;--info:#0891b2;--info-light:#06b6d4;--g50:#f9fafb;--g100:#f3f4f6;--g200:#e5e7eb;--g300:#d1d5db;--g400:#9ca3af;--g500:#6b7280;--g600:#4b5563;--g700:#374151;--g800:#1f2937;--g900:#111827;--bg:#f3f4f6;--bg-card:#fff;--bg-sidebar:#1e293b;--text:#111827;--text-secondary:#6b7280;--text-inverse:#fff;--border:#e5e7eb;--shadow:0 1px 3px rgba(0,0,0,.1),0 1px 2px rgba(0,0,0,.06);--shadow-lg:0 10px 15px -3px rgba(0,0,0,.1),0 4px 6px -2px rgba(0,0,0,.05);--radius:8px;--radius-sm:4px;--radius-lg:12px;--sidebar-w:260px}
 [data-theme="dark"]{--bg:#0f172a;--bg-card:#1e293b;--bg-sidebar:#0f172a;--text:#f1f5f9;--text-secondary:#94a3b8;--text-inverse:#0f172a;--border:#334155;--shadow:0 1px 3px rgba(0,0,0,.3);--shadow-lg:0 10px 15px -3px rgba(0,0,0,.3);--g50:#1e293b;--g100:#1e293b;--g200:#334155;--g300:#475569;--g400:#64748b;--g500:#94a3b8;--g600:#cbd5e1;--g700:#e2e8f0;--g800:#f1f5f9;--g900:#f8fafc}
@@ -287,6 +287,7 @@ tr:hover td{background:var(--g50)}
       <button class="nav-item buh-only hidden" data-page="outgoing" onclick="showPage('outgoing')"><span>&#128228;</span> Исходящие</button>
       <button class="nav-item buh-only hidden" data-page="orders" onclick="showPage('orders')"><span>&#128220;</span> Приказы</button>
       <button class="nav-item buh-only hidden" data-page="journal" onclick="showPage('journal')"><span>&#128214;</span> Журнал регистрации</button>
+      <button class="nav-item buh-only hidden" data-page="poa_registry" onclick="showPage('poa_registry')"><span>&#128221;</span> Реестр доверенностей</button>
       <button class="nav-item admin-only hidden" data-page="nomenclature" onclick="showPage('nomenclature')"><span>&#128193;</span> Номенклатура дел</button>
       <div class="nav-section">Личное</div>
       <button class="nav-item" data-page="unread" onclick="showPage('unread')"><span>&#128172;</span> Непрочитанные</button>
@@ -445,7 +446,7 @@ async function loadTasks(){try{allTasks=await api('/api/tasks');var myPending=al
 async function loadTrash(){try{trashDocs=await api('/api/documents/trash')}catch(e){trashDocs=[]}}
 function updateApprovalBadge(){var count=documents.filter(function(d){return canUserApprove(d)}).length;var badge=document.getElementById('approvalBadge');if(count>0){badge.textContent=count;badge.classList.remove('hidden')}else{badge.classList.add('hidden')}}
 
-function showPage(name,param){var adminPages=['kanban','calendar','analytics','archive','trash','users','settings','audit','nomenclature','reports','deptstats'];if(currentUser&&currentUser.role!=='admin'&&adminPages.indexOf(name)>=0){name='documents'}var buhPages=['incoming','outgoing','orders','journal'];if(currentUser&&buhPages.indexOf(name)>=0&&currentUser.role!=='admin'&&currentUser.department!=='Бухгалтерия'){name='documents'}currentPage=name;currentPageParam=param;selectedIds.clear();sortCol='';sortDir=1;if(name!=='detail')aiSetDoc(null);document.querySelectorAll('.nav-item').forEach(function(n){n.classList.toggle('active',n.dataset.page===name)});if(window.innerWidth<768)document.getElementById('sidebar').classList.remove('open');var pc=document.getElementById('pageContent');switch(name){case'dashboard':renderDashboard(pc);break;case'documents':renderDocuments(pc);break;case'create':renderCreateEdit(pc,param);break;case'detail':renderDetail(pc,param);break;case'approvals':renderApprovals(pc);break;case'kanban':renderKanban(pc);break;case'calendar':renderCalendar(pc);break;case'analytics':renderAnalytics(pc);break;case'archive':renderArchive(pc);break;case'notifications':renderNotifications(pc);break;case'users':renderUsers(pc);break;case'settings':renderSettings(pc);break;case'templates':renderTemplates(pc);break;case'tasks':renderTasks(pc);break;case'trash':renderTrash(pc);break;case'profile':renderProfile(pc);break;case'incoming':renderIncoming(pc);break;case'outgoing':renderOutgoing(pc);break;case'orders':renderOrders(pc);break;case'audit':renderAuditLog(pc);break;case'journal':renderJournal(pc);break;case'nomenclature':renderNomenclature(pc);break;case'reports':renderReports(pc);break;case'favorites':renderFavorites(pc);break;case'delegations':renderDelegations(pc);break;case'mystats':renderMyStats(pc);break;case'controlled':renderControlled(pc);break;case'reminders':renderReminders(pc);break;case'deptstats':renderDeptStats(pc);break;case'unread':renderUnread(pc);break;case'advsearch':renderAdvSearch(pc);break;default:pc.innerHTML='<p>\u0421\u0442\u0440\u0430\u043d\u0438\u0446\u0430 \u043d\u0435 \u043d\u0430\u0439\u0434\u0435\u043d\u0430</p>'}}
+function showPage(name,param){var adminPages=['kanban','calendar','analytics','archive','trash','users','settings','audit','nomenclature','reports','deptstats'];if(currentUser&&currentUser.role!=='admin'&&adminPages.indexOf(name)>=0){name='documents'}var buhPages=['incoming','outgoing','orders','journal','poa_registry'];if(currentUser&&buhPages.indexOf(name)>=0&&currentUser.role!=='admin'&&currentUser.department!=='Бухгалтерия'){name='documents'}currentPage=name;currentPageParam=param;selectedIds.clear();sortCol='';sortDir=1;if(name!=='detail')aiSetDoc(null);document.querySelectorAll('.nav-item').forEach(function(n){n.classList.toggle('active',n.dataset.page===name)});if(window.innerWidth<768)document.getElementById('sidebar').classList.remove('open');var pc=document.getElementById('pageContent');switch(name){case'dashboard':renderDashboard(pc);break;case'documents':renderDocuments(pc);break;case'create':renderCreateEdit(pc,param);break;case'detail':renderDetail(pc,param);break;case'approvals':renderApprovals(pc);break;case'kanban':renderKanban(pc);break;case'calendar':renderCalendar(pc);break;case'analytics':renderAnalytics(pc);break;case'archive':renderArchive(pc);break;case'notifications':renderNotifications(pc);break;case'users':renderUsers(pc);break;case'settings':renderSettings(pc);break;case'templates':renderTemplates(pc);break;case'tasks':renderTasks(pc);break;case'trash':renderTrash(pc);break;case'profile':renderProfile(pc);break;case'incoming':renderIncoming(pc);break;case'outgoing':renderOutgoing(pc);break;case'orders':renderOrders(pc);break;case'audit':renderAuditLog(pc);break;case'journal':renderJournal(pc);break;case'poa_registry':renderPoaRegistry(pc);break;case'nomenclature':renderNomenclature(pc);break;case'reports':renderReports(pc);break;case'favorites':renderFavorites(pc);break;case'delegations':renderDelegations(pc);break;case'mystats':renderMyStats(pc);break;case'controlled':renderControlled(pc);break;case'reminders':renderReminders(pc);break;case'deptstats':renderDeptStats(pc);break;case'unread':renderUnread(pc);break;case'advsearch':renderAdvSearch(pc);break;default:pc.innerHTML='<p>\u0421\u0442\u0440\u0430\u043d\u0438\u0446\u0430 \u043d\u0435 \u043d\u0430\u0439\u0434\u0435\u043d\u0430</p>'}}
 
 function toggleSidebar(){document.getElementById('sidebar').classList.toggle('open')}
 function toggleTheme(){var t=document.documentElement.getAttribute('data-theme')==='dark'?'light':'dark';document.documentElement.setAttribute('data-theme',t);localStorage.setItem('edo-theme',t);var btn=document.querySelector('.theme-toggle');if(btn)btn.innerHTML=t==='dark'?'&#9728;':'&#127763;';btn.title=t==='dark'?'Светлая тема':'Тёмная тема'}
@@ -891,8 +892,8 @@ async function filterAudit(){
   var action=document.getElementById('auditAction')?document.getElementById('auditAction').value:'';
   var uid=document.getElementById('auditUser')?parseInt(document.getElementById('auditUser').value)||0:0;
   var url='/api/audit-log?limit=200';
-  if(action)url+='&action='+action;
-  if(uid)url+='&user_id='+uid;
+  if(action)url+='&action='+encodeURIComponent(action);
+  if(uid)url+='&user_id='+encodeURIComponent(uid);
   try{
     var logs=await api(url);
     var rows=logs.map(function(l){return'<tr><td>'+fmtDate(l.created_at)+'</td><td>'+esc(l.user_name)+'</td><td><span class="badge badge-'+(l.action==='login'?'blue':l.action==='create'?'green':l.action==='delete'||l.action==='reject'?'red':'gray')+'">'+(auditActions[l.action]||l.action)+'</span></td><td>'+esc(l.entity_type)+(l.entity_id?' #'+l.entity_id:'')+'</td><td>'+esc(l.details)+'</td><td>'+esc(l.ip_address)+'</td></tr>'}).join('');
@@ -1054,6 +1055,86 @@ function renderOrdersTable() {
   }).join('');
   if (filtered.length === 0) rows = '<tr><td colspan="7" style="text-align:center;padding:2rem;color:var(--text-secondary)">\u041f\u0440\u0438\u043a\u0430\u0437\u044b \u043d\u0435 \u043d\u0430\u0439\u0434\u0435\u043d\u044b</td></tr>';
   table.innerHTML = '<thead><tr><th>\u2116</th><th>\u041d\u0430\u0437\u0432\u0430\u043d\u0438\u0435</th><th>\u0422\u0438\u043f</th><th>\u0421\u043e\u0442\u0440\u0443\u0434\u043d\u0438\u043a</th><th>\u0421\u0442\u0430\u0442\u0443\u0441</th><th>\u0414\u0430\u0442\u0430</th><th>\u0414\u0435\u0439\u0441\u0442\u0432\u0438\u044f</th></tr></thead><tbody>' + rows + '</tbody>';
+}
+
+// ============ POA REGISTRY (Реестр доверенностей) ============
+function renderPoaRegistry(el) {
+  var filtered = documents.filter(function(d) { return d.doc_type === 'power_of_attorney' });
+  var so = Object.keys(STATUSES).map(function(k) { return '<option value="' + k + '">' + esc(STATUSES[k]) + '</option>' }).join('');
+  var now = new Date().toISOString().slice(0, 10);
+  var active = filtered.filter(function(d) { var ef = d.extra_fields || {}; return (!ef.valid_to || ef.valid_to >= now) && (d.status === 'approved' || d.status === 'resolved') });
+  var expired = filtered.filter(function(d) { var ef = d.extra_fields || {}; return ef.valid_to && ef.valid_to < now });
+  el.innerHTML = '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;flex-wrap:wrap;gap:.5rem">' +
+    '<h2 class="page-title" style="margin-bottom:0">\u0420\u0435\u0435\u0441\u0442\u0440 \u0434\u043e\u0432\u0435\u0440\u0435\u043d\u043d\u043e\u0441\u0442\u0435\u0439</h2>' +
+    '<div style="display:flex;gap:.5rem">' +
+    '<button class="btn btn-outline btn-sm" onclick="exportPoaCsv()">&#128229; CSV</button>' +
+    '<button class="btn btn-primary" onclick="showPage(\'create\')">&#10010; \u0421\u043e\u0437\u0434\u0430\u0442\u044c \u0434\u043e\u0432\u0435\u0440\u0435\u043d\u043d\u043e\u0441\u0442\u044c</button>' +
+    '</div></div>' +
+    '<div class="filter-bar">' +
+    '<select id="poaFilterStatus" onchange="renderPoaTable()"><option value="">\u0412\u0441\u0435 \u0441\u0442\u0430\u0442\u0443\u0441\u044b</option>' + so + '</select>' +
+    '<select id="poaFilterValidity" onchange="renderPoaTable()"><option value="">\u0412\u0441\u0435</option><option value="active">\u0414\u0435\u0439\u0441\u0442\u0432\u0443\u044e\u0449\u0438\u0435</option><option value="expired">\u0418\u0441\u0442\u0435\u043a\u0448\u0438\u0435</option></select>' +
+    '<input type="text" id="poaFilterSearch" placeholder="\u041f\u043e\u0438\u0441\u043a..." oninput="renderPoaTable()">' +
+    '</div>' +
+    '<div class="stats-grid" style="margin-bottom:1rem">' +
+    '<div class="stat-card primary"><div class="stat-label">\u0412\u0441\u0435\u0433\u043e</div><div class="stat-value">' + filtered.length + '</div></div>' +
+    '<div class="stat-card success"><div class="stat-label">\u0414\u0435\u0439\u0441\u0442\u0432\u0443\u044e\u0449\u0438\u0435</div><div class="stat-value">' + active.length + '</div></div>' +
+    '<div class="stat-card danger"><div class="stat-label">\u0418\u0441\u0442\u0435\u043a\u0448\u0438\u0435</div><div class="stat-value">' + expired.length + '</div></div>' +
+    '<div class="stat-card warning"><div class="stat-label">\u041d\u0430 \u0441\u043e\u0433\u043b\u0430\u0441\u043e\u0432\u0430\u043d\u0438\u0438</div><div class="stat-value">' + filtered.filter(function(d){return d.status==='pending'}).length + '</div></div>' +
+    '</div>' +
+    '<div class="card"><div class="card-body" style="padding:0"><div class="table-wrap"><table id="poaTable"></table></div></div></div>';
+  renderPoaTable();
+}
+function renderPoaTable() {
+  var filtered = documents.filter(function(d) { return d.doc_type === 'power_of_attorney' });
+  var stE = document.getElementById('poaFilterStatus'), vlE = document.getElementById('poaFilterValidity'),
+      sqE = document.getElementById('poaFilterSearch');
+  var st = stE ? stE.value : '', vl = vlE ? vlE.value : '', sq = sqE ? sqE.value.toLowerCase() : '';
+  var now = new Date().toISOString().slice(0, 10);
+  if (st) filtered = filtered.filter(function(d) { return d.status === st });
+  if (vl === 'active') filtered = filtered.filter(function(d) { var ef = d.extra_fields || {}; return !ef.valid_to || ef.valid_to >= now });
+  if (vl === 'expired') filtered = filtered.filter(function(d) { var ef = d.extra_fields || {}; return ef.valid_to && ef.valid_to < now });
+  if (sq) filtered = filtered.filter(function(d) {
+    var ef = d.extra_fields || {};
+    return (d.title || '').toLowerCase().indexOf(sq) >= 0 || (d.number || '').toLowerCase().indexOf(sq) >= 0 ||
+           (ef.person || '').toLowerCase().indexOf(sq) >= 0 || (ef.purpose || '').toLowerCase().indexOf(sq) >= 0 ||
+           (d.author_name || '').toLowerCase().indexOf(sq) >= 0
+  });
+  filtered.sort(function(a, b) { return new Date(b.created_at || 0) - new Date(a.created_at || 0) });
+  var table = document.getElementById('poaTable');
+  if (!table) return;
+  var rows = filtered.map(function(d) {
+    var ef = d.extra_fields || {};
+    var validTo = ef.valid_to || '';
+    var isExpired = validTo && validTo < now;
+    var validityBadge = validTo ? (isExpired ? '<span class="badge" style="background:#ef4444;color:#fff">\u0418\u0441\u0442\u0435\u043a\u043b\u0430</span>' : '<span class="badge" style="background:#22c55e;color:#fff">\u0414\u0435\u0439\u0441\u0442\u0432\u0443\u0435\u0442</span>') : '\u2014';
+    var isO = d.author_id === currentUser.id || currentUser.role === 'admin';
+    return '<tr>' +
+      '<td>' + esc(d.number || d.id) + '</td>' +
+      '<td><a href="#" onclick="event.preventDefault();showPage(\'detail\',' + d.id + ')" style="font-weight:600">' + esc(d.title) + '</a></td>' +
+      '<td>' + esc(ef.person || '') + '</td>' +
+      '<td>' + esc(ef.purpose || '') + '</td>' +
+      '<td>' + statusBadge(d.status) + '</td>' +
+      '<td>' + validityBadge + '</td>' +
+      '<td>' + (validTo ? formatDate(validTo) : '\u2014') + '</td>' +
+      '<td>' + formatDate(d.created_at) + '</td>' +
+      '<td style="white-space:nowrap">' +
+      '<button class="btn btn-outline btn-sm" onclick="showPage(\'detail\',' + d.id + ')" title="\u041f\u0440\u043e\u0441\u043c\u043e\u0442\u0440">&#128065;</button>' +
+      (isO ? '<button class="btn btn-outline btn-sm" onclick="showPage(\'create\',' + d.id + ')" title="\u0420\u0435\u0434\u0430\u043a\u0442\u0438\u0440\u043e\u0432\u0430\u0442\u044c">&#9998;</button>' : '') +
+      (isO ? '<button class="btn btn-danger btn-sm" onclick="deleteDoc(' + d.id + ')" title="\u0423\u0434\u0430\u043b\u0438\u0442\u044c">&#128465;</button>' : '') +
+      '</td></tr>'
+  }).join('');
+  if (filtered.length === 0) rows = '<tr><td colspan="9" style="text-align:center;padding:2rem;color:var(--text-secondary)">\u0414\u043e\u0432\u0435\u0440\u0435\u043d\u043d\u043e\u0441\u0442\u0438 \u043d\u0435 \u043d\u0430\u0439\u0434\u0435\u043d\u044b</td></tr>';
+  table.innerHTML = '<thead><tr><th>\u2116</th><th>\u041d\u0430\u0437\u0432\u0430\u043d\u0438\u0435</th><th>\u0414\u043e\u0432\u0435\u0440\u0435\u043d\u043d\u043e\u0435 \u043b\u0438\u0446\u043e</th><th>\u041d\u0430\u0437\u043d\u0430\u0447\u0435\u043d\u0438\u0435</th><th>\u0421\u0442\u0430\u0442\u0443\u0441</th><th>\u0414\u0435\u0439\u0441\u0442\u0432\u0438\u0435</th><th>\u0414\u0435\u0439\u0441\u0442\u0432\u0443\u0435\u0442 \u0434\u043e</th><th>\u0414\u0430\u0442\u0430 \u0441\u043e\u0437\u0434\u0430\u043d\u0438\u044f</th><th>\u0414\u0435\u0439\u0441\u0442\u0432\u0438\u044f</th></tr></thead><tbody>' + rows + '</tbody>';
+}
+function exportPoaCsv() {
+  var filtered = documents.filter(function(d) { return d.doc_type === 'power_of_attorney' });
+  var csv = '\u2116,\u041d\u0430\u0437\u0432\u0430\u043d\u0438\u0435,\u0414\u043e\u0432\u0435\u0440\u0435\u043d\u043d\u043e\u0435 \u043b\u0438\u0446\u043e,\u041d\u0430\u0437\u043d\u0430\u0447\u0435\u043d\u0438\u0435,\u0421\u0442\u0430\u0442\u0443\u0441,\u0414\u0435\u0439\u0441\u0442\u0432\u0443\u0435\u0442 \u0434\u043e,\u0414\u0430\u0442\u0430 \u0441\u043e\u0437\u0434\u0430\u043d\u0438\u044f\n';
+  filtered.forEach(function(d) {
+    var ef = d.extra_fields || {};
+    csv += '"' + (d.number || d.id) + '","' + (d.title || '').replace(/"/g, '""') + '","' + (ef.person || '').replace(/"/g, '""') + '","' + (ef.purpose || '').replace(/"/g, '""') + '","' + (STATUSES[d.status] || d.status) + '","' + (ef.valid_to || '') + '","' + (d.created_at || '').slice(0, 10) + '"\n';
+  });
+  var blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+  var a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = '\u0440\u0435\u0435\u0441\u0442\u0440_\u0434\u043e\u0432\u0435\u0440\u0435\u043d\u043d\u043e\u0441\u0442\u0435\u0439.csv'; a.click();
 }
 
 function uploadCorrespondencePDF(direction) {
@@ -1299,8 +1380,8 @@ function printJournal(){
   if(df&&df.value)period+='с '+df.value+' ';
   if(dt&&dt.value)period+='по '+dt.value;
   var w=window.open('','_blank','width=1100,height=700');
-  w.document.write('<!DOCTYPE html><html><head><meta charset="utf-8"><title>'+title+'</title><style>body{font-family:Arial,sans-serif;margin:20px;font-size:11px}h1{font-size:16px;text-align:center;margin-bottom:4px}p.period{text-align:center;color:#555;margin-bottom:12px;font-size:12px}table{width:100%;border-collapse:collapse}th,td{border:1px solid #333;padding:4px 6px;text-align:left;font-size:10px}th{background:#f0f0f0;font-weight:700}tr:nth-child(even){background:#fafafa}@media print{body{margin:10px}}</style></head><body>'+
-    '<h1>'+title+'</h1>'+(period?'<p class="period">Период: '+period+'</p>':'')+
+  w.document.write('<!DOCTYPE html><html><head><meta charset="utf-8"><title>'+esc(title)+'</title><style>body{font-family:Arial,sans-serif;margin:20px;font-size:11px}h1{font-size:16px;text-align:center;margin-bottom:4px}p.period{text-align:center;color:#555;margin-bottom:12px;font-size:12px}table{width:100%;border-collapse:collapse}th,td{border:1px solid #333;padding:4px 6px;text-align:left;font-size:10px}th{background:#f0f0f0;font-weight:700}tr:nth-child(even){background:#fafafa}@media print{body{margin:10px}}</style></head><body>'+
+    '<h1>'+esc(title)+'</h1>'+(period?'<p class="period">Период: '+esc(period)+'</p>':'')+
     table.outerHTML+
     '<div style="margin-top:20px;font-size:10px;color:#999">Распечатано: '+new Date().toLocaleString('ru-RU')+'</div>'+
     '</body></html>');
@@ -1642,7 +1723,7 @@ async function showBarcode(docId){
   document.getElementById('pageContent').insertAdjacentHTML('beforeend',html);
   }catch(e){toast(e.message,'error')}
 }
-function printBarcode(b64,code){var w=window.open('','_blank','width=400,height=300');w.document.write('<html><body style="text-align:center;margin:40px"><img src="data:image/png;base64,'+b64+'"><p style="font-size:16px;font-weight:bold">'+code+'</p></body></html>');w.document.close();setTimeout(function(){w.print()},200)}
+function printBarcode(b64,code){var w=window.open('','_blank','width=400,height=300');w.document.write('<html><body style="text-align:center;margin:40px"><img src="data:image/png;base64,'+esc(b64)+'"><p style="font-size:16px;font-weight:bold">'+esc(code)+'</p></body></html>');w.document.close();setTimeout(function(){w.print()},200)}
 
 // ============ PERSONAL STATS ============
 async function renderMyStats(el){
@@ -1803,7 +1884,7 @@ async function renderUnread(el){
     var data=await api('/api/unread-docs');
     var items=data.items||[];
     var rows=items.map(function(d){return'<tr style="cursor:pointer" onclick="showPage(\'detail\','+d.id+')"><td>'+esc(d.number||'#'+d.id)+'</td><td style="font-weight:600">'+esc(d.title)+'</td><td>'+esc(DOC_TYPES[d.doc_type]||d.doc_type)+'</td><td>'+statusBadge(d.status)+'</td><td>'+esc(d.author_name)+'</td><td>'+formatDate(d.created_at)+'</td></tr>'}).join('');
-    el.innerHTML='<div class="page-header"><h1>&#128172; Непрочитанные документы</h1><span class="badge">'+data.count+'</span></div>'+
+    el.innerHTML='<div class="page-header"><h1>&#128172; Непрочитанные документы</h1><span class="badge">'+esc(data.count)+'</span></div>'+
       '<div class="card"><div class="table-wrap"><table class="data-table"><thead><tr><th>#</th><th>Название</th><th>Тип</th><th>Статус</th><th>Автор</th><th>Дата</th></tr></thead><tbody>'+(rows||'<tr><td colspan="6" style="text-align:center;color:var(--text-secondary)">Все документы прочитаны</td></tr>')+'</tbody></table></div></div>';
   }catch(e){el.innerHTML='<p>Ошибка загрузки</p>'}
 }
@@ -1839,7 +1920,7 @@ async function doAdvSearch(){
     var data=await api('/api/search/advanced?'+params.toString());
     var items=data.items||[];
     var rows=items.map(function(d){return'<tr style="cursor:pointer" onclick="showPage(\'detail\','+d.id+')"><td>'+esc(d.number||'#'+d.id)+'</td><td style="font-weight:600">'+esc(d.title)+'</td><td>'+esc(DOC_TYPES[d.doc_type]||d.doc_type)+'</td><td>'+statusBadge(d.status)+'</td><td>'+esc(d.author_name)+'</td><td>'+formatDate(d.created_at)+'</td></tr>'}).join('');
-    document.getElementById('advSearchResults').innerHTML='<div class="card" style="margin-top:1rem"><div class="page-header" style="padding:1rem 1.5rem"><h2>Результаты: '+data.count+'</h2></div><div class="table-wrap"><table class="data-table"><thead><tr><th>#</th><th>Название</th><th>Тип</th><th>Статус</th><th>Автор</th><th>Дата</th></tr></thead><tbody>'+(rows||'<tr><td colspan="6" style="text-align:center">Ничего не найдено</td></tr>')+'</tbody></table></div></div>';
+    document.getElementById('advSearchResults').innerHTML='<div class="card" style="margin-top:1rem"><div class="page-header" style="padding:1rem 1.5rem"><h2>Результаты: '+esc(data.count)+'</h2></div><div class="table-wrap"><table class="data-table"><thead><tr><th>#</th><th>Название</th><th>Тип</th><th>Статус</th><th>Автор</th><th>Дата</th></tr></thead><tbody>'+(rows||'<tr><td colspan="6" style="text-align:center">Ничего не найдено</td></tr>')+'</tbody></table></div></div>';
   }catch(e){document.getElementById('advSearchResults').innerHTML='<p style="color:var(--danger);margin-top:1rem">Ошибка поиска</p>'}
 }
 
