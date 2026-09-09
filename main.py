@@ -33,7 +33,7 @@ from collections import defaultdict
 
 # Rate limiting for login
 _login_attempts: dict[str, list[float]] = defaultdict(list)
-_LOGIN_MAX_ATTEMPTS = 30
+_LOGIN_MAX_ATTEMPTS = 10
 _LOGIN_WINDOW = 300  # 5 minutes
 _login_last_cleanup = 0.0
 
@@ -87,25 +87,31 @@ async def _auto_approve_loop():
     """Background task: check overdue approvals every 30 minutes."""
     while True:
         await asyncio.sleep(1800)  # 30 min
+        db = None
         try:
             db = SessionLocal()
             _process_auto_approvals(db)
-            db.close()
         except Exception:
             pass
+        finally:
+            if db:
+                db.close()
 
 async def _deadline_reminder_loop():
     """Background task: send reminders 1-3 days before deadline."""
     while True:
         await asyncio.sleep(3600)  # every hour
+        db = None
         try:
             db = SessionLocal()
             _process_deadline_reminders(db)
             _process_task_reminders(db)
             _process_custom_reminders(db)
-            db.close()
         except Exception:
             pass
+        finally:
+            if db:
+                db.close()
 
 def _process_deadline_reminders(db: Session):
     """Send notifications for documents approaching deadline."""
@@ -397,8 +403,8 @@ def _seed_data():
 @app.post("/api/register", response_model=Token)
 def register(data: UserRegister, request: Request, db: Session = Depends(get_db)):
     login_val = data.login.strip().lower()
-    if not login_val.isalpha() or len(login_val) != 6:
-        raise HTTPException(400, "Логин должен состоять из 6 английских букв")
+    if not re.fullmatch(r'[a-z]{6}', login_val):
+        raise HTTPException(400, "Логин должен состоять из 6 английских букв (a-z)")
     if len(data.password) < 8:
         raise HTTPException(400, "Пароль должен быть не менее 8 символов")
     if db.query(User).filter(User.login == login_val).first():
@@ -542,9 +548,9 @@ def set_deputy(user_id: int, data: DeputySet, db: Session = Depends(get_db), use
 def update_profile(data: ProfileUpdate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     if data.name is not None:
         user.name = sanitize(data.name)
-    if data.department is not None:
+    if data.department is not None and user.role == "admin":
         user.department = sanitize(data.department)
-    if data.position is not None:
+    if data.position is not None and user.role == "admin":
         user.position = sanitize(data.position)
     if data.user_status is not None:
         if data.user_status not in ("available", "away", "vacation"):
@@ -918,7 +924,7 @@ def search_correspondence(
             "created_at": str(d.created_at), "deadline": d.deadline or "",
             "extra_fields": extra,
         })
-    total = query.count() if not offset else len(results)
+    total = query.count()
     return {"results": results, "total": total}
 
 
@@ -1025,12 +1031,11 @@ def update_document(doc_id: int, data: DocumentCreate, db: Session = Depends(get
     tags = db.query(Tag).filter(Tag.id.in_(data.tag_ids)).all() if data.tag_ids else []
     doc.tags = tags
 
-    for att in doc.attachments:
-        if att.filepath and os.path.exists(att.filepath):
-            os.remove(att.filepath)
-        db.delete(att)
+    # Only add new attachments from form (uploaded files are managed via /upload endpoint)
     for att in data.attachments:
-        db.add(Attachment(document_id=doc.id, filename=att.get("name",""), size=att.get("size","")))
+        existing = any(a.filename == att.get("name","") for a in doc.attachments)
+        if not existing:
+            db.add(Attachment(document_id=doc.id, filename=att.get("name",""), size=att.get("size","")))
 
     related = db.query(Document).filter(Document.id.in_(data.related_doc_ids)).all() if data.related_doc_ids else []
     doc.related_docs = related
@@ -1295,7 +1300,7 @@ async def upload_file(doc_id: int, file: UploadFile = File(...), db: Session = D
     doc = load_doc(db, doc_id)
     doc_dir = os.path.join(UPLOAD_DIR, str(doc_id))
     os.makedirs(doc_dir, exist_ok=True)
-    safe_name = secrets.token_hex(8) + "_" + (file.filename or "file")
+    safe_name = secrets.token_hex(8) + "_" + os.path.basename(file.filename or "file")
     filepath = os.path.join(doc_dir, safe_name)
     content = await file.read()
     max_size = 50 * 1024 * 1024  # 50 MB
@@ -1591,7 +1596,7 @@ def create_resolution(doc_id: int, data: ResolutionCreate, db: Session = Depends
     db.add(resolution)
     doc.status = "resolved"
     doc.updated_at = datetime.now(timezone.utc)
-    add_history(db, doc, user.name, f"Резолюция: {data.text[:60]}")
+    add_history(db, doc, user.name, f"Резолюция: {sanitize(data.text[:60])}")
     add_notification(db, doc.author_id, "resolution", "Резолюция", f'{user.name} вынес резолюцию по "{doc.title}"', doc.id)
     db.commit()
     return doc_to_out(load_doc(db, doc.id))
@@ -2335,7 +2340,7 @@ async def import_document(
     # Save original file as attachment
     doc_dir = os.path.join(UPLOAD_DIR, str(doc.id))
     os.makedirs(doc_dir, exist_ok=True)
-    safe_name = secrets.token_hex(8) + "_" + filename
+    safe_name = secrets.token_hex(8) + "_" + os.path.basename(filename)
     filepath = os.path.join(doc_dir, safe_name)
     with open(filepath, "wb") as f:
         f.write(content_bytes)
@@ -2411,7 +2416,7 @@ async def upload_correspondence(
     # Save file as attachment
     doc_dir = os.path.join(UPLOAD_DIR, str(doc.id))
     os.makedirs(doc_dir, exist_ok=True)
-    safe_name = secrets.token_hex(8) + "_" + filename
+    safe_name = secrets.token_hex(8) + "_" + os.path.basename(filename)
     filepath = os.path.join(doc_dir, safe_name)
     with open(filepath, "wb") as f:
         f.write(content_bytes)
@@ -2440,6 +2445,8 @@ def get_registration_journal(
     user: User = Depends(get_current_user),
 ):
     """Журнал регистрации входящих/исходящих/приказов."""
+    if user.role != "admin" and user.department != "Бухгалтерия":
+        raise HTTPException(403, "Доступ только для бухгалтерии и администратора")
     if direction == "incoming" or direction == "inbox":
         types = INCOMING_TYPES
     elif direction == "orders":
@@ -2810,10 +2817,11 @@ API_1C_TOKEN = os.getenv("API_1C_TOKEN", "")
 
 def _check_1c_token(request: Request):
     """Verify 1C API token from header."""
+    import hmac
     token = request.headers.get("X-1C-Token", "")
     if not API_1C_TOKEN:
-        raise HTTPException(503, "1C API не настроен (задайте API_1C_TOKEN)")
-    if token != API_1C_TOKEN:
+        raise HTTPException(401, "1C API не настроен")
+    if not hmac.compare_digest(token, API_1C_TOKEN):
         raise HTTPException(401, "Неверный токен 1C API")
 
 
@@ -3130,6 +3138,8 @@ def ai_generate(
 def bulk_approve(data: dict, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     """Approve multiple documents at once."""
     doc_ids = data.get("doc_ids", [])
+    if not isinstance(doc_ids, list) or not all(isinstance(d, int) for d in doc_ids):
+        raise HTTPException(400, "doc_ids должен быть массивом целых чисел")
     comment = sanitize(data.get("comment", "Массовое согласование"))
     if not doc_ids or len(doc_ids) > 50:
         raise HTTPException(400, "Укажите от 1 до 50 документов")
@@ -3922,10 +3932,12 @@ def export_reports_xlsx(
             cell.border = thin_border
     ws3.column_dimensions["A"].width = 30
 
+    from starlette.background import BackgroundTask
     tmp = tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False)
     wb.save(tmp.name)
     return FileResponse(tmp.name, filename=f"report-{date_from}-{date_to}.xlsx",
-                        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+                        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        background=BackgroundTask(os.unlink, tmp.name))
 
 
 # ============ VERSION ROLLBACK ============
@@ -4060,7 +4072,7 @@ async def add_comment_with_file(
     if file and file.filename:
         doc_dir = os.path.join(UPLOAD_DIR, str(doc_id))
         os.makedirs(doc_dir, exist_ok=True)
-        safe_name = secrets.token_hex(8) + "_" + file.filename
+        safe_name = secrets.token_hex(8) + "_" + os.path.basename(file.filename)
         filepath = os.path.join(doc_dir, safe_name)
         content = await file.read()
         max_size = 10 * 1024 * 1024  # 10 MB for comments

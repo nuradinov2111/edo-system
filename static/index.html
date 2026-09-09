@@ -251,7 +251,7 @@ tr:hover td{background:var(--g50)}
       <div class="form-group"><label>Логин (6 букв)</label><input type="text" id="loginLogin" required maxlength="6" pattern="[A-Za-z]{6}" placeholder="abcdef"></div>
       <div class="form-group"><label>Пароль</label><input type="password" id="loginPass" required></div>
       <button class="btn btn-primary btn-block btn-lg" type="submit">Войти</button>
-      <div style="margin-top:1rem;padding:.75rem;background:var(--hover);border-radius:var(--radius);font-size:.75rem;line-height:1.6">
+      <div style="margin-top:1rem;padding:.75rem;background:var(--g50);border-radius:var(--radius);font-size:.75rem;line-height:1.6">
         <div style="font-weight:600;margin-bottom:.25rem">Тестовые аккаунты:</div>
         <div style="cursor:pointer" onclick="document.getElementById('loginLogin').value='admedo';document.getElementById('loginPass').value='Adm!n2026Edo'">Админ: <b>admedo</b> / Adm!n2026Edo</div>
         <div style="cursor:pointer" onclick="document.getElementById('loginLogin').value='manger';document.getElementById('loginPass').value='Mngr!2026Edo'">Менеджер: <b>manger</b> / Mngr!2026Edo</div>
@@ -460,7 +460,7 @@ function updateApprovalBadge(){var count=documents.filter(function(d){return can
 function showPage(name,param){var adminPages=['kanban','calendar','analytics','archive','trash','users','settings','audit','nomenclature','reports','deptstats'];if(currentUser&&currentUser.role!=='admin'&&adminPages.indexOf(name)>=0){name='documents'}var buhPages=['incoming','outgoing','orders','journal','poa_registry'];if(currentUser&&buhPages.indexOf(name)>=0&&currentUser.role!=='admin'&&currentUser.department!=='Бухгалтерия'){name='documents'}currentPage=name;currentPageParam=param;selectedIds.clear();sortCol='';sortDir=1;if(name!=='detail')aiSetDoc(null);document.querySelectorAll('.nav-item').forEach(function(n){n.classList.toggle('active',n.dataset.page===name)});if(window.innerWidth<768)document.getElementById('sidebar').classList.remove('open');var pc=document.getElementById('pageContent');switch(name){case'dashboard':renderDashboard(pc);break;case'documents':renderDocuments(pc);break;case'create':renderCreateEdit(pc,param);break;case'detail':renderDetail(pc,param);break;case'approvals':renderApprovals(pc);break;case'kanban':renderKanban(pc);break;case'calendar':renderCalendar(pc);break;case'analytics':renderAnalytics(pc);break;case'archive':renderArchive(pc);break;case'notifications':renderNotifications(pc);break;case'users':renderUsers(pc);break;case'settings':renderSettings(pc);break;case'templates':renderTemplates(pc);break;case'tasks':renderTasks(pc);break;case'trash':renderTrash(pc);break;case'profile':renderProfile(pc);break;case'incoming':renderIncoming(pc);break;case'outgoing':renderOutgoing(pc);break;case'orders':renderOrders(pc);break;case'audit':renderAuditLog(pc);break;case'journal':renderJournal(pc);break;case'poa_registry':renderPoaRegistry(pc);break;case'nomenclature':renderNomenclature(pc);break;case'reports':renderReports(pc);break;case'favorites':renderFavorites(pc);break;case'delegations':renderDelegations(pc);break;case'mystats':renderMyStats(pc);break;case'controlled':renderControlled(pc);break;case'reminders':renderReminders(pc);break;case'deptstats':renderDeptStats(pc);break;case'unread':renderUnread(pc);break;case'advsearch':renderAdvSearch(pc);break;default:pc.innerHTML='<p>\u0421\u0442\u0440\u0430\u043d\u0438\u0446\u0430 \u043d\u0435 \u043d\u0430\u0439\u0434\u0435\u043d\u0430</p>'}}
 
 function toggleSidebar(){document.getElementById('sidebar').classList.toggle('open')}
-function toggleTheme(){var t=document.documentElement.getAttribute('data-theme')==='dark'?'light':'dark';document.documentElement.setAttribute('data-theme',t);localStorage.setItem('edo-theme',t);var btn=document.querySelector('.theme-toggle');if(btn)btn.innerHTML=t==='dark'?'&#9728;':'&#127763;';btn.title=t==='dark'?'Светлая тема':'Тёмная тема'}
+function toggleTheme(){var t=document.documentElement.getAttribute('data-theme')==='dark'?'light':'dark';document.documentElement.setAttribute('data-theme',t);localStorage.setItem('edo-theme',t);var btn=document.querySelector('.theme-toggle');if(btn){btn.innerHTML=t==='dark'?'&#9728;':'&#127763;';btn.title=t==='dark'?'Светлая тема':'Тёмная тема'}}
 var _searchTimer=null;
 function onGlobalSearch(val){
   if(currentPage==='documents'){var si=document.getElementById('filterSearch');if(si){si.value=val;renderDocTable()}}
@@ -863,7 +863,7 @@ async function changePassword(){
   var np=document.getElementById('profNewPass').value,np2=document.getElementById('profNewPass2').value,op=document.getElementById('profOldPass').value;
   if(!op){toast('Введите текущий пароль','warning');return}
   if(np!==np2){toast('Пароли не совпадают','warning');return}
-  if(np.length<4){toast('Минимум 4 символа','warning');return}
+  if(np.length<8){toast('Минимум 8 символов','warning');return}
   try{await api('/api/profile/password',{method:'POST',body:{old_password:op,new_password:np}});toast('Пароль изменён','success');document.getElementById('profOldPass').value='';document.getElementById('profNewPass').value='';document.getElementById('profNewPass2').value=''}catch(e){toast(e.message,'error')}
 }
 async function saveNotifSettings(){
@@ -906,7 +906,7 @@ async function filterAudit(){
   try{
     var logs=await api(url);
     var rows=logs.map(function(l){return'<tr><td>'+formatDate(l.created_at)+'</td><td>'+esc(l.user_name)+'</td><td><span class="badge badge-'+(l.action==='login'?'blue':l.action==='create'?'green':l.action==='delete'||l.action==='reject'?'red':'gray')+'">'+(auditActions[l.action]||l.action)+'</span></td><td>'+esc(l.entity_type)+(l.entity_id?' #'+l.entity_id:'')+'</td><td>'+esc(l.details)+'</td><td>'+esc(l.ip_address)+'</td></tr>'}).join('');
-    document.getElementById('auditTable').innerHTML='<table class="doc-table"><thead><tr><th>Дата</th><th>Пользователь</th><th>Действие</th><th>Объект</th><th>Детали</th><th>IP</th></tr></thead><tbody>'+rows+'</tbody></table>';
+    document.getElementById('auditTable').innerHTML='<table class="data-table"><thead><tr><th>Дата</th><th>Пользователь</th><th>Действие</th><th>Объект</th><th>Детали</th><th>IP</th></tr></thead><tbody>'+rows+'</tbody></table>';
     if(!logs.length)document.getElementById('auditTable').innerHTML='<p style="text-align:center;color:var(--text-secondary)">Нет записей</p>'
   }catch(e){document.getElementById('auditTable').innerHTML='<p style="color:var(--danger)">'+esc(e.message)+'</p>'}
 }
@@ -1355,11 +1355,12 @@ async function renderJournal(el){
 }
 async function loadJournal(){
   var df=document.getElementById('jDateFrom'),dt=document.getElementById('jDateTo');
-  var params='?direction='+journalDirection;
-  if(df&&df.value)params+='&date_from='+df.value;
-  if(dt&&dt.value)params+='&date_to='+dt.value;
+  var params=[];
+  if(df&&df.value)params.push('date_from='+df.value);
+  if(dt&&dt.value)params.push('date_to='+dt.value);
+  var qs=params.length?'?'+params.join('&'):'';
   try{
-    var data=await api('/api/journal/'+journalDirection+params.replace('?direction='+journalDirection,''));
+    var data=await api('/api/journal/'+journalDirection+qs);
     var isInc=journalDirection==='incoming';
     var isOrd=journalDirection==='orders';
     var table=document.getElementById('journalTable');
@@ -1592,7 +1593,7 @@ async function showDiff(docId){
 }
 
 // ============ DASHBOARD WIDGETS ============
-function toggleDashWidgets(){var cfg=document.getElementById('dashWidgetConfig');if(cfg){var vis=cfg.style.display==='none';cfg.style.display=vis?'flex':'none';cfg.classList.toggle('hidden',!vis)}}
+function toggleDashWidgets(){var cfg=document.getElementById('dashWidgetConfig');if(cfg){var vis=cfg.classList.contains('hidden');cfg.classList.toggle('hidden',!vis);cfg.style.display=vis?'flex':'none'}}
 function toggleWidget(key,val){var prefs=JSON.parse(localStorage.getItem('edo-widgets')||'{"quickCreate":true,"stats":true,"approvals":true,"tasks":true,"recent":true,"overdue":true,"statuses":true}');prefs[key]=val;localStorage.setItem('edo-widgets',JSON.stringify(prefs));renderDashboard(document.getElementById('pageContent'))}
 
 // ============ WEBHOOK SETTINGS ============
@@ -1763,11 +1764,11 @@ async function batchPrint(){
   var w=window.open('','_blank','width=800,height=600');
   var body='';
   res.documents.forEach(function(d,i){
-    var appRows='';(d.approvals||[]).forEach(function(a){var icon=a.status==='approved'?'✅':a.status==='rejected'?'❌':'⏳';appRows+='<tr><td style="padding:2px 8px">'+icon+' '+d.author_name+'</td><td>'+a.status+'</td></tr>'});
+    var appRows='';(d.approvals||[]).forEach(function(a){var icon=a.status==='approved'?'✅':a.status==='rejected'?'❌':'⏳';appRows+='<tr><td style="padding:2px 8px">'+icon+' '+esc(a.user_name||'')+'</td><td>'+esc(a.status)+'</td></tr>'});
     body+=(i>0?'<div style="page-break-before:always"></div>':'')+
     '<h1 style="font-size:16px;margin:0">'+esc(d.title)+'</h1>'+
-    '<div style="color:#555;font-size:12px;margin:4px 0 12px">'+d.doc_type+' • №'+d.number+' • '+d.status+'</div>'+
-    '<table style="font-size:12px;margin-bottom:12px"><tr><td style="font-weight:600;padding:2px 8px">Автор:</td><td>'+d.author_name+'</td></tr>'+(d.deadline?'<tr><td style="font-weight:600;padding:2px 8px">Дедлайн:</td><td>'+d.deadline+'</td></tr>':'')+'</table>'+
+    '<div style="color:#555;font-size:12px;margin:4px 0 12px">'+esc(d.doc_type)+' • №'+esc(d.number)+' • '+esc(d.status)+'</div>'+
+    '<table style="font-size:12px;margin-bottom:12px"><tr><td style="font-weight:600;padding:2px 8px">Автор:</td><td>'+esc(d.author_name)+'</td></tr>'+(d.deadline?'<tr><td style="font-weight:600;padding:2px 8px">Дедлайн:</td><td>'+esc(d.deadline)+'</td></tr>':'')+'</table>'+
     '<div style="white-space:pre-wrap;border:1px solid #ddd;padding:12px;border-radius:4px;font-size:12px;margin-bottom:12px">'+esc(d.content)+'</div>'+
     (appRows?'<h3 style="font-size:13px">Согласование</h3><table>'+appRows+'</table>':'')+
     (d.resolution?'<div style="margin-top:8px;padding:8px;border:1px solid #ccc;border-radius:4px;font-size:12px"><b>Резолюция:</b> '+esc(d.resolution)+'</div>':'');
