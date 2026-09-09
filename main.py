@@ -4221,33 +4221,33 @@ def department_stats(db: Session = Depends(get_db), user: User = Depends(get_cur
     if user.role != "admin":
         raise HTTPException(403, "Только для администраторов")
     from sqlalchemy import func, case
-    _dept = case((User.department == "", "Без отдела"), (User.department == None, "Без отдела"), else_=User.department).label("dept")
+    def _dept_label():
+        return case((User.department == "", "Без отдела"), (User.department == None, "Без отдела"), else_=User.department).label("dept")
     # 1) Users per department
-    dept_users = dict(
-        db.query(_dept, func.count(User.id)).group_by("dept").all()
-    )
+    d1 = _dept_label()
+    dept_users = dict(db.query(d1, func.count(User.id)).group_by(d1).all())
     # 2) Docs per department (via author)
+    d2 = _dept_label()
     dept_docs = dict(
-        db.query(_dept, func.count(Document.id))
+        db.query(d2, func.count(Document.id))
         .join(User, Document.author_id == User.id)
-        .filter(Document.deleted == False)
-        .group_by("dept").all()
+        .filter(Document.deleted == False).group_by(d2).all()
     )
     # 3) Approvals per department
+    d3 = _dept_label()
     dept_approvals = dict(
-        db.query(_dept, func.count(Approval.id))
+        db.query(d3, func.count(Approval.id))
         .join(User, Approval.user_id == User.id)
-        .filter(Approval.status.in_(["approved", "rejected"]))
-        .group_by("dept").all()
+        .filter(Approval.status.in_(["approved", "rejected"])).group_by(d3).all()
     )
     # 4) Tasks per department (total + done)
+    d4 = _dept_label()
     dept_tasks = {
         row[0]: {"total": row[1], "done": row[2]}
         for row in db.query(
-            _dept, func.count(Task.id),
+            d4, func.count(Task.id),
             func.sum(case((Task.status == "completed", 1), else_=0)),
-        ).join(User, Task.assignee_id == User.id)
-        .group_by("dept").all()
+        ).join(User, Task.assignee_id == User.id).group_by(d4).all()
     }
     all_depts = set(dept_users) | set(dept_docs) | set(dept_approvals) | set(dept_tasks)
     return [
