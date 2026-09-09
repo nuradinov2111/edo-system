@@ -11,12 +11,14 @@ from models import User
 
 SECRET_KEY = os.getenv("SECRET_KEY", "")
 if not SECRET_KEY:
+    if os.getenv("RENDER") or os.getenv("PRODUCTION"):
+        raise RuntimeError("SECRET_KEY не задан! Задайте SECRET_KEY в переменных окружения для production.")
     import warnings
     warnings.warn("SECRET_KEY не задан! Используется случайный ключ. Задайте SECRET_KEY в переменных окружения.", stacklevel=1)
     import secrets as _s
     SECRET_KEY = _s.token_hex(32)
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_DAYS = 30
+ACCESS_TOKEN_EXPIRE_HOURS = 24
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 security = HTTPBearer()
@@ -31,7 +33,7 @@ def verify_password(plain: str, hashed: str) -> bool:
 
 
 def create_token(user_id: int) -> str:
-    expire = datetime.now(timezone.utc) + timedelta(days=ACCESS_TOKEN_EXPIRE_DAYS)
+    expire = datetime.now(timezone.utc) + timedelta(hours=ACCESS_TOKEN_EXPIRE_HOURS)
     return jwt.encode({"sub": str(user_id), "exp": expire}, SECRET_KEY, algorithm=ALGORITHM)
 
 

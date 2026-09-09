@@ -356,15 +356,21 @@ def _seed_data():
             db.add(Tag(name=name, color=color))
         db.commit()
 
-    # Seed 3 demo users
+    # Seed demo users — passwords from env vars (fallback to random if not set)
+    import secrets as _sec
+    _default_pw = lambda: _sec.token_urlsafe(16)
     demo_users = [
-        {"login": "admedo", "name": "Администратор", "email": "admin@edo.com", "password": "Adm!n2026Edo",
+        {"login": "admedo", "name": "Администратор", "email": "admin@edo.com",
+         "password": os.getenv("DEMO_ADMIN_PASSWORD", _default_pw()),
          "role": "admin", "department": "Руководство", "position": "Системный администратор", "color": "#2563eb"},
-        {"login": "manger", "name": "Менеджер Иванов", "email": "manager@edo.com", "password": "Mngr!2026Edo",
+        {"login": "manger", "name": "Менеджер Иванов", "email": "manager@edo.com",
+         "password": os.getenv("DEMO_MANAGER_PASSWORD", _default_pw()),
          "role": "user", "department": "Управление", "position": "Менеджер проектов", "color": "#16a34a"},
-        {"login": "usredo", "name": "Сотрудник Петров", "email": "user@edo.com", "password": "User!2026Edo",
+        {"login": "usredo", "name": "Сотрудник Петров", "email": "user@edo.com",
+         "password": os.getenv("DEMO_USER_PASSWORD", _default_pw()),
          "role": "user", "department": "Отдел разработки", "position": "Специалист", "color": "#7c3aed"},
-        {"login": "buhgal", "name": "Бухгалтер Смирнова", "email": "buh@edo.com", "password": "Buh!2026Edo",
+        {"login": "buhgal", "name": "Бухгалтер Смирнова", "email": "buh@edo.com",
+         "password": os.getenv("DEMO_BUH_PASSWORD", _default_pw()),
          "role": "user", "department": "Бухгалтерия", "position": "Главный бухгалтер", "color": "#ea580c"},
     ]
     for u in demo_users:
@@ -1351,6 +1357,7 @@ def delete_file(att_id: int, db: Session = Depends(get_db), user: User = Depends
 @app.post("/api/documents/{doc_id}/comments", response_model=DocumentOut)
 def add_comment(doc_id: int, data: CommentCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     doc = load_doc(db, doc_id)
+    check_doc_access(doc, user, db)
     text_clean = sanitize(data.text)
     db.add(Comment(document_id=doc.id, user_id=user.id, text=text_clean))
     add_history(db, doc, user.name, "Комментарий: " + text_clean[:40])
@@ -1475,15 +1482,6 @@ def delete_task(task_id: int, db: Session = Depends(get_db), user: User = Depend
 
 
 # ============ DASHBOARD ============
-
-def _user_doc_filter(user):
-    """Subquery for doc IDs visible to user."""
-    if user.role == "admin":
-        return None
-    return (Document.author_id == user.id) | Document.id.in_(
-        db.query(Approval.document_id).filter(Approval.user_id == user.id)
-    )
-
 
 @app.get("/api/dashboard")
 def get_dashboard(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
@@ -3422,8 +3420,26 @@ def delete_webhook(wh_id: int, user: User = Depends(get_current_user)):
 def _fire_webhooks(event: str, payload: dict):
     """Send webhook notifications (non-blocking)."""
     import threading
+    def _is_safe_url(url):
+        """Re-resolve DNS right before sending to prevent rebinding."""
+        from urllib.parse import urlparse
+        import ipaddress, socket
+        parsed = urlparse(url)
+        hostname = (parsed.hostname or "").lower()
+        if hostname in ("localhost", "127.0.0.1", "0.0.0.0", "::1", ""):
+            return False
+        try:
+            for info in socket.getaddrinfo(hostname, parsed.port or 443, proto=socket.IPPROTO_TCP):
+                ip = ipaddress.ip_address(info[4][0])
+                if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
+                    return False
+        except socket.gaierror:
+            return False
+        return True
     def _send(url, data):
         try:
+            if not _is_safe_url(url):
+                return
             import urllib.request
             body = json.dumps(data, ensure_ascii=False, default=str).encode()
             req = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json"}, method="POST")
@@ -3480,7 +3496,9 @@ def download_backup(db: Session = Depends(get_db), user: User = Depends(get_curr
 
 @app.get("/api/analytics/export/pdf")
 def export_analytics_pdf(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    """Export analytics as PDF."""
+    """Export analytics as PDF. Admin only."""
+    if user.role != "admin":
+        raise HTTPException(403, "Только администратор")
     from fpdf import FPDF
     import tempfile
     from sqlalchemy import func
@@ -3694,6 +3712,8 @@ def sign_document(doc_id: int, db: Session = Depends(get_db), user: User = Depen
 
 @app.get("/api/documents/{doc_id}/signatures")
 def get_signatures(doc_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    doc = load_doc(db, doc_id)
+    check_doc_access(doc, user, db)
     sigs = db.query(DocumentSignature).filter(DocumentSignature.document_id == doc_id).all()
     result = []
     for s in sigs:
@@ -3783,6 +3803,8 @@ def record_view(doc_id: int, db: Session = Depends(get_db), user: User = Depends
 
 @app.get("/api/documents/{doc_id}/views")
 def get_views(doc_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    doc = load_doc(db, doc_id)
+    check_doc_access(doc, user, db)
     views = db.query(DocumentView).filter(DocumentView.document_id == doc_id).order_by(DocumentView.viewed_at.desc()).all()
     result = []
     for v in views:
@@ -3850,7 +3872,9 @@ def export_reports_xlsx(
     date_from: str = "2024-01-01", date_to: str = "2030-12-31",
     db: Session = Depends(get_db), user: User = Depends(get_current_user),
 ):
-    """Export reports as XLSX (Excel)."""
+    """Export reports as XLSX (Excel). Admin only."""
+    if user.role != "admin":
+        raise HTTPException(403, "Только администратор")
     from openpyxl import Workbook
     from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
     import tempfile

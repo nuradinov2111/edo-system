@@ -252,11 +252,11 @@ tr:hover td{background:var(--g50)}
       <div class="form-group"><label>Пароль</label><input type="password" id="loginPass" required></div>
       <button class="btn btn-primary btn-block btn-lg" type="submit">Войти</button>
       <div style="margin-top:1rem;padding:.75rem;background:var(--g50);border-radius:var(--radius);font-size:.75rem;line-height:1.6">
-        <div style="font-weight:600;margin-bottom:.25rem">Тестовые аккаунты:</div>
-        <div style="cursor:pointer" onclick="document.getElementById('loginLogin').value='admedo';document.getElementById('loginPass').value='Adm!n2026Edo'">Админ: <b>admedo</b> / Adm!n2026Edo</div>
-        <div style="cursor:pointer" onclick="document.getElementById('loginLogin').value='manger';document.getElementById('loginPass').value='Mngr!2026Edo'">Менеджер: <b>manger</b> / Mngr!2026Edo</div>
-        <div style="cursor:pointer" onclick="document.getElementById('loginLogin').value='usredo';document.getElementById('loginPass').value='User!2026Edo'">Сотрудник: <b>usredo</b> / User!2026Edo</div>
-        <div style="cursor:pointer" onclick="document.getElementById('loginLogin').value='buhgal';document.getElementById('loginPass').value='Buh!2026Edo'">Бухгалтер: <b>buhgal</b> / Buh!2026Edo</div>
+        <div style="font-weight:600;margin-bottom:.25rem">Демо-режим:</div>
+        <div style="cursor:pointer" onclick="document.getElementById('loginLogin').value='admedo';document.getElementById('loginPass').focus()">Админ: <b>admedo</b></div>
+        <div style="cursor:pointer" onclick="document.getElementById('loginLogin').value='manger';document.getElementById('loginPass').focus()">Менеджер: <b>manger</b></div>
+        <div style="cursor:pointer" onclick="document.getElementById('loginLogin').value='usredo';document.getElementById('loginPass').focus()">Сотрудник: <b>usredo</b></div>
+        <div style="cursor:pointer" onclick="document.getElementById('loginLogin').value='buhgal';document.getElementById('loginPass').focus()">Бухгалтер: <b>buhgal</b></div>
       </div>
     </form>
     <form id="registerForm" class="hidden" onsubmit="return doRegister(event)">
@@ -1399,19 +1399,23 @@ function printJournal(){
 }
 
 // ============ NOMENCLATURE ============
+var _nomenclatureData={};
 async function renderNomenclature(el){
   try{var cases=await api('/api/nomenclature')}catch(e){cases=[]}
+  _nomenclatureData={};
+  cases.forEach(function(c){_nomenclatureData[c.id]=c});
   var rows=cases.map(function(c){
-    return '<tr><td>'+esc(c.index)+'</td><td><a href="#" onclick="event.preventDefault();showNomenclatureDocs('+c.id+',\''+esc(c.index)+' - '+esc(c.title).replace(/'/g,"\\'")+'\')">'+esc(c.title)+'</a></td>'+
+    return '<tr><td>'+esc(c.index)+'</td><td><a href="#" onclick="event.preventDefault();showNomenclatureDocs('+parseInt(c.id)+',_nomenclatureData['+parseInt(c.id)+'].index+\' - \'+_nomenclatureData['+parseInt(c.id)+'].title)">'+esc(c.title)+'</a></td>'+
       '<td>'+esc(c.department)+'</td><td>'+c.retention_years+' лет</td><td>'+c.doc_count+'</td><td>'+esc(c.description||'')+'</td>'+
-      '<td style="white-space:nowrap"><button class="btn btn-outline btn-sm" onclick="editNomenclature('+c.id+',\''+esc(c.index).replace(/'/g,"\\'")+'\',\''+esc(c.title).replace(/'/g,"\\'")+'\',\''+esc(c.department).replace(/'/g,"\\'")+'\','+c.retention_years+',\''+esc(c.description||'').replace(/'/g,"\\'")+'\')">&#9998;</button> '+
-      '<button class="btn btn-danger btn-sm" onclick="deleteNomenclature('+c.id+')">&#128465;</button></td></tr>';
+      '<td style="white-space:nowrap"><button class="btn btn-outline btn-sm" onclick="editNomenclatureById('+parseInt(c.id)+')">&#9998;</button> '+
+      '<button class="btn btn-danger btn-sm" onclick="deleteNomenclature('+parseInt(c.id)+')">&#128465;</button></td></tr>';
   }).join('');
   if(!rows)rows='<tr><td colspan="7" style="text-align:center;padding:2rem;color:var(--text-secondary)">Номенклатура дел пуста</td></tr>';
   el.innerHTML='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem"><h2 class="page-title" style="margin-bottom:0">Номенклатура дел</h2><button class="btn btn-primary" onclick="addNomenclature()">&#10010; Добавить дело</button></div>'+
     '<div class="card"><div class="card-body" style="padding:0"><div class="table-wrap"><table><thead><tr><th>Индекс</th><th>Наименование дела</th><th>Отдел</th><th>Срок хранения</th><th>Документов</th><th>Описание</th><th>Действия</th></tr></thead><tbody>'+rows+'</tbody></table></div></div></div>';
 }
 function addNomenclature(){_nomenclatureModal()}
+function editNomenclatureById(id){var c=_nomenclatureData[id];if(!c)return;_nomenclatureModal(c.id,c.index,c.title,c.department,c.retention_years,c.description||'')}
 function editNomenclature(id,idx,title,dept,years,desc){_nomenclatureModal(id,idx,title,dept,years,desc)}
 function _nomenclatureModal(id,idx,title,dept,years,desc){
   var isEdit=!!id;
@@ -1492,7 +1496,7 @@ function loadQRCode(docId){
   var container=document.getElementById('qrCodeContainer');
   if(!container)return;
   api('/api/documents/'+docId+'/qr').then(function(data){
-    if(data&&data.qr_base64){
+    if(data&&data.qr_base64&&/^[A-Za-z0-9+/=]+$/.test(data.qr_base64)){
       container.innerHTML='<img src="data:image/png;base64,'+data.qr_base64+'" alt="QR" style="width:120px;height:120px;border-radius:var(--radius)">';
     }else{
       container.innerHTML='<div style="font-size:.75rem;color:var(--text-secondary)">QR недоступен</div>';
@@ -1729,7 +1733,8 @@ async function rollbackVersion(docId,versionId){
 // ============ BARCODE ============
 async function showBarcode(docId){
   try{var res=await api('/api/documents/'+docId+'/barcode');
-  var html='<div class="modal-overlay" onclick="if(event.target===this)this.remove()"><div class="modal-card" style="max-width:400px"><div class="modal-header"><h3>Штрих-код</h3><button class="modal-close" onclick="this.closest(\'.modal-overlay\').remove()">&times;</button></div><div class="modal-body" style="text-align:center"><img src="data:image/png;base64,'+res.barcode_base64+'" style="max-width:100%"><p style="margin-top:.5rem;font-size:.875rem;font-weight:600">'+esc(res.code)+'</p><button class="btn btn-outline btn-sm" onclick="printBarcode(\''+res.barcode_base64+'\',\''+esc(res.code)+'\')">&#128424; Печать</button></div></div></div>';
+  var b64=/^[A-Za-z0-9+/=]+$/.test(res.barcode_base64||'')?res.barcode_base64:'';
+  var html='<div class="modal-overlay" onclick="if(event.target===this)this.remove()"><div class="modal-card" style="max-width:400px"><div class="modal-header"><h3>Штрих-код</h3><button class="modal-close" onclick="this.closest(\'.modal-overlay\').remove()">&times;</button></div><div class="modal-body" style="text-align:center"><img src="data:image/png;base64,'+b64+'" style="max-width:100%"><p style="margin-top:.5rem;font-size:.875rem;font-weight:600">'+esc(res.code)+'</p><button class="btn btn-outline btn-sm" onclick="printBarcode(\''+b64+'\',\''+esc(res.code)+'\')">&#128424; Печать</button></div></div></div>';
   document.getElementById('pageContent').insertAdjacentHTML('beforeend',html);
   }catch(e){toast(e.message,'error')}
 }
