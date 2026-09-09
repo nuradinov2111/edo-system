@@ -4221,40 +4221,33 @@ def department_stats(db: Session = Depends(get_db), user: User = Depends(get_cur
     if user.role != "admin":
         raise HTTPException(403, "Только для администраторов")
     from sqlalchemy import func, case
+    _dept = case((User.department == "", "Без отдела"), (User.department == None, "Без отдела"), else_=User.department).label("dept")
     # 1) Users per department
     dept_users = dict(
-        db.query(
-            func.coalesce(User.department, "Без отдела"),
-            func.count(User.id),
-        ).group_by(func.coalesce(User.department, "Без отдела")).all()
+        db.query(_dept, func.count(User.id)).group_by("dept").all()
     )
     # 2) Docs per department (via author)
     dept_docs = dict(
-        db.query(
-            func.coalesce(User.department, "Без отдела"),
-            func.count(Document.id),
-        ).join(User, Document.author_id == User.id)
+        db.query(_dept, func.count(Document.id))
+        .join(User, Document.author_id == User.id)
         .filter(Document.deleted == False)
-        .group_by(func.coalesce(User.department, "Без отдела")).all()
+        .group_by("dept").all()
     )
     # 3) Approvals per department
     dept_approvals = dict(
-        db.query(
-            func.coalesce(User.department, "Без отдела"),
-            func.count(Approval.id),
-        ).join(User, Approval.user_id == User.id)
+        db.query(_dept, func.count(Approval.id))
+        .join(User, Approval.user_id == User.id)
         .filter(Approval.status.in_(["approved", "rejected"]))
-        .group_by(func.coalesce(User.department, "Без отдела")).all()
+        .group_by("dept").all()
     )
     # 4) Tasks per department (total + done)
     dept_tasks = {
         row[0]: {"total": row[1], "done": row[2]}
         for row in db.query(
-            func.coalesce(User.department, "Без отдела"),
-            func.count(Task.id),
+            _dept, func.count(Task.id),
             func.sum(case((Task.status == "completed", 1), else_=0)),
         ).join(User, Task.assignee_id == User.id)
-        .group_by(func.coalesce(User.department, "Без отдела")).all()
+        .group_by("dept").all()
     }
     all_depts = set(dept_users) | set(dept_docs) | set(dept_approvals) | set(dept_tasks)
     return [
