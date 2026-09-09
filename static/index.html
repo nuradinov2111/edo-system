@@ -262,7 +262,7 @@ tr:hover td{background:var(--g50)}
     <form id="registerForm" class="hidden" onsubmit="return doRegister(event)">
       <div class="form-group"><label>Имя</label><input type="text" id="regName" required></div>
       <div class="form-group"><label>Логин (6 англ. букв)</label><input type="text" id="regLogin" required maxlength="6" pattern="[A-Za-z]{6}" placeholder="abcdef"></div>
-      <div class="form-group"><label>Пароль</label><input type="password" id="regPass" required minlength="4"></div>
+      <div class="form-group"><label>Пароль</label><input type="password" id="regPass" required minlength="8" placeholder="Минимум 8 символов"></div>
       <div class="form-group"><label>Отдел</label><input type="text" id="regDept"></div>
       <div class="form-group"><label>Должность</label><input type="text" id="regPos"></div>
       <button class="btn btn-primary btn-block btn-lg" type="submit">Зарегистрироваться</button>

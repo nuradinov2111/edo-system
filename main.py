@@ -399,6 +399,8 @@ def register(data: UserRegister, request: Request, db: Session = Depends(get_db)
     login_val = data.login.strip().lower()
     if not login_val.isalpha() or len(login_val) != 6:
         raise HTTPException(400, "Логин должен состоять из 6 английских букв")
+    if len(data.password) < 8:
+        raise HTTPException(400, "Пароль должен быть не менее 8 символов")
     if db.query(User).filter(User.login == login_val).first():
         raise HTTPException(400, "Логин уже занят")
     colors = ["#2563eb","#16a34a","#d97706","#7c3aed","#db2777","#059669","#ea580c","#4f46e5"]
@@ -870,7 +872,12 @@ def search_correspondence(
 ):
     if user.role != "admin" and user.department != "Бухгалтерия":
         raise HTTPException(403, "Доступ только для бухгалтерии и администратора")
-    types = INCOMING_TYPES if direction == "incoming" else OUTGOING_TYPES
+    if direction == "incoming":
+        types = INCOMING_TYPES
+    elif direction == "outgoing":
+        types = OUTGOING_TYPES
+    else:
+        raise HTTPException(400, f"Неизвестное направление: {direction}. Допустимые: incoming, outgoing")
     query = db.query(Document).options(
         joinedload(Document.author_user),
         joinedload(Document.tags),
@@ -2433,12 +2440,14 @@ def get_registration_journal(
     user: User = Depends(get_current_user),
 ):
     """Журнал регистрации входящих/исходящих/приказов."""
-    if direction == "incoming":
+    if direction == "incoming" or direction == "inbox":
         types = INCOMING_TYPES
     elif direction == "orders":
         types = ORDER_TYPES
-    else:
+    elif direction == "outgoing" or direction == "outbox":
         types = OUTGOING_TYPES
+    else:
+        raise HTTPException(400, f"Неизвестное направление: {direction}. Допустимые: incoming, outgoing, orders")
     query = db.query(Document).options(
         joinedload(Document.author_user),
         joinedload(Document.approvals).joinedload(Approval.user),
@@ -4637,6 +4646,10 @@ def related_suggest(doc_id: int, db: Session = Depends(get_db), user: User = Dep
 
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
+
+@app.get("/manifest.json")
+def manifest():
+    return FileResponse("static/manifest.json", media_type="application/manifest+json")
 
 @app.get("/")
 def index():
